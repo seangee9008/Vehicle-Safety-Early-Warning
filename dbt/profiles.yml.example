@@ -1,0 +1,15 @@
+# Copy to profiles.yml (git-ignored), then run dbt from this folder with:  dbt debug --profiles-dir .
+vehicle_safety:
+  target: duckdb
+  outputs:
+    duckdb:                    # local, no setup; reads data/nhtsa.duckdb
+      type: duckdb
+      path: ../data/nhtsa.duckdb
+      threads: 4
+    bigquery:                  # switch with: dbt build --target bigquery
+      type: bigquery
+      method: oauth            # uses `gcloud auth application-default login`
+      project: YOUR_GCP_PROJECT
+      dataset: nhtsa
+      location: US
+      threads: 4

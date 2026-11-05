@@ -1,0 +1,36 @@
+# Install with:  pip install -r requirements.txt
+# (torch is the biggest download; everything else is quick)
+
+# --- Data: download, load, query ---
+pandas>=2.2
+pyarrow>=16
+duckdb>=1.1
+requests>=2.32
+tqdm>=4.66
+dbt-core==1.12.6
+dbt-duckdb==1.11.1
+dbt-bigquery==1.12.1
+google-cloud-bigquery>=3.25
+
+# --- Waymo reading (no TensorFlow needed) ---
+protobuf>=6.31,<7     # dbt needs protobuf 6.x; don't upgrade to 7
+grpcio-tools>=1.75
+
+# --- Modeling ---
+numpy>=1.26
+scikit-learn>=1.5
+lightgbm>=4.5
+shap>=0.46
+matplotlib>=3.9
+torch>=2.4
+sentence-transformers>=3.0
+
+# --- Agent and demo ---
+anthropic>=0.40
+python-dotenv>=1.0
+streamlit>=1.39
+
+# --- Dev tools ---
+jupyter>=1.1
+ruff>=0.6
+pytest>=8.3

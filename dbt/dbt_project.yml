@@ -1,0 +1,15 @@
+name: vehicle_safety
+version: "0.1.0"
+config-version: 2
+profile: vehicle_safety
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+models:
+  vehicle_safety:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

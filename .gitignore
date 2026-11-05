@@ -1,0 +1,30 @@
+# Data stays on each laptop (re-download with the scripts)
+data/
+*.zip
+*.parquet
+*.duckdb
+*.duckdb.wal
+*.tfrecord*
+
+# Generated Waymo protobuf code (rebuild with scripts/build_waymo_protos.py)
+src/waymo_pb/
+
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/profiles.yml
+
+# OS
+.DS_Store

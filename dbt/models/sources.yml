@@ -1,0 +1,14 @@
+# Raw NHTSA tables created by scripts/load_nhtsa.py.
+# Locally (DuckDB) they live in schema `raw`; in BigQuery they are raw_<table> in your dataset.
+version: 2
+
+sources:
+  - name: raw
+    schema: "{{ 'raw' if target.type != 'bigquery' else target.dataset }}"
+    tables:
+      - name: complaints
+        identifier: "{{ 'complaints' if target.type != 'bigquery' else 'raw_complaints' }}"
+      - name: recalls
+        identifier: "{{ 'recalls' if target.type != 'bigquery' else 'raw_recalls' }}"
+      - name: investigations
+        identifier: "{{ 'investigations' if target.type != 'bigquery' else 'raw_investigations' }}"
