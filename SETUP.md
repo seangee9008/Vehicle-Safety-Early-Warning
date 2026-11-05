@@ -92,6 +92,8 @@ python scripts/load_nhtsa.py --bigquery <project-id>.nhtsa
 2. `gcloud auth login` with the same Google account.
 3. On [waymo.com/open/download](https://waymo.com/open/download/), open the **Motion** dataset → **scenario** folder (uncompressed) and copy its `gs://` path (the folder with `training/` and `validation/`). Put it in `.env` as `WAYMO_MOTION_BUCKET`.
 
+One validation shard is enough to start. Training shards are only needed in week 3; then download one with `N_TRAIN=1 bash scripts/download_waymo.sh`.
+
 ```bash
 export WAYMO_MOTION_BUCKET="gs://<path you copied>"   # Windows PowerShell: $env:WAYMO_MOTION_BUCKET="gs://..."
 bash scripts/download_waymo.sh            # 3 training + 1 validation shard (Windows: run in Git Bash)

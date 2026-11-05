@@ -49,6 +49,13 @@ data/                     downloaded data, git-ignored (created by the scripts)
 
 NHTSA columns load as text exactly as published; dates are `YYYYMMDD`. Field meanings are in `data/raw/nhtsa/dictionaries/`.
 
+## Waymo data
+
+Waymo Open Motion Dataset **v1.3.1** is set up locally with one validation shard
+(`validation.tfrecord-00000-of-00150`). It contains **286 scenarios** and converts
+to **1,666,301 track rows**. The shard and its processed Parquet files use about
+**431 MB** on disk. Data remains local and is not committed.
+
 ## Data sources and licenses
 
 - NHTSA: [Datasets and APIs](https://www.nhtsa.gov/nhtsa-datasets-and-apis), public domain.
