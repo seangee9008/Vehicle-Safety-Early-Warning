@@ -9,7 +9,7 @@ vehicle_safety:
     bigquery:                  # switch with: dbt build --target bigquery
       type: bigquery
       method: oauth            # uses `gcloud auth application-default login`
-      project: YOUR_GCP_PROJECT
-      dataset: nhtsa
+      project: waymo-project-513802
+      dataset: vehicle_safety
       location: US
       threads: 4

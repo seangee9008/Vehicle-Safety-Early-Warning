@@ -81,10 +81,43 @@ Optional, BigQuery instead of local DuckDB:
 
 ```bash
 gcloud auth application-default login
-bq mk --dataset <project-id>:nhtsa
-python scripts/load_nhtsa.py --bigquery <project-id>.nhtsa
-# set the project in dbt/profiles.yml, then: dbt build --profiles-dir . --target bigquery
+gcloud config set project waymo-project-513802
+gcloud auth application-default set-quota-project waymo-project-513802
+bq --location=US mk --dataset waymo-project-513802:vehicle_safety
+# Copy profiles.yml.example to profiles.yml, then run:
+dbt build --profiles-dir . --target bigquery
 ```
+
+### BigQuery (shared, free sandbox)
+
+The team uses the `waymo-project-513802` BigQuery sandbox project with the
+`vehicle_safety` dataset. Each teammate should:
+
+1. Install the Google Cloud CLI (Mac: `brew install --cask google-cloud-sdk`).
+2. Authenticate and select the shared project:
+
+   ```bash
+   gcloud auth login
+   gcloud auth application-default login
+   gcloud config set project waymo-project-513802
+   gcloud auth application-default set-quota-project waymo-project-513802
+   ```
+
+3. Put these values in the local, git-ignored `.env`:
+
+   ```dotenv
+   GCP_PROJECT_ID=waymo-project-513802
+   BQ_DATASET=vehicle_safety
+   ```
+
+4. Check access with `bq ls`; it should show `vehicle_safety`.
+5. Copy `dbt/profiles.yml.example` to `dbt/profiles.yml`. DuckDB remains the
+   default; select BigQuery explicitly with `dbt build --profiles-dir . --target bigquery`.
+
+The sandbox is free, has a **10 GB lifetime storage limit**, and tables expire
+after **60 days**. Never load raw data into this project. In week 3, publish only
+the final small tables (features and watchlist), using full table replacements.
+Do not enable billing or use paid APIs for this project.
 
 ## 6. Waymo data (Track B people)
 
