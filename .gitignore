@@ -1,5 +1,6 @@
 # Data stays on each laptop (re-download with the scripts)
 data/
+reports/briefs/
 *.zip
 *.parquet
 *.duckdb
