@@ -134,6 +134,25 @@ def test_validator_rejects_fake_id_and_uncited_bullet():
     assert result["evidence_bullets"] == 3
 
 
+def test_validator_requires_separate_brackets_for_multiple_citations():
+    brief = """## Evidence
+- Two complaints are summarized [ODINO 12345678, ODINO 87654321].
+"""
+
+    result = validate_brief(
+        brief,
+        [
+            {"odino": "12345678", "received_date": "2018-08-31"},
+            {"odino": "87654321", "received_date": "2018-08-31"},
+        ],
+        "2018-09-01",
+    )
+
+    assert result["citations_total"] == 0
+    assert result["citations_valid"] == 0
+    assert result["bullets_without_citations"] == 1
+
+
 def test_watchlist_fixture_matches_contract_3_columns():
     path = ROOT / "src" / "agent" / "fixtures" / "watchlist_sample.csv"
     with path.open(newline="", encoding="utf-8") as file:

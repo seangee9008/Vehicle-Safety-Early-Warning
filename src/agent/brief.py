@@ -19,7 +19,7 @@ from src.agent import data_access
 from src.agent.validate import validate_brief
 
 ROOT = data_access.ROOT
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3.6-flash"
 MAX_TOOL_CALLS = 6
 MAX_RATE_LIMIT_RETRIES = 5
 
@@ -39,7 +39,9 @@ Return Markdown with exactly these sections:
 ## Suggested next step
 
 Provide 3-6 Evidence bullets. Every Evidence bullet must cite at least one complaint as
-[ODINO 12345678]. Use only IDs returned by get_complaints. Severity values are computed by the application and supplied in the prompt;
+[ODINO 12345678]. Use only IDs returned by get_complaints. If citing multiple complaints in
+one bullet, format each citation separately, like [ODINO 12345678], [ODINO 87654321]; never
+put multiple IDs inside one bracket pair. Severity values are computed by the application and supplied in the prompt;
 repeat those counts without recalculating them. For similar recalls, list campaign IDs returned by
 find_similar_recalls or write "none found". Keep suggestions clearly labeled as next steps, not as
 established facts."""

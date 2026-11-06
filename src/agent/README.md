@@ -19,7 +19,7 @@ The sample Contract 3 CSV has `month`, `make`, `model`, `model_year`, `component
 the agent is instructed not to treat them as complaint evidence.
 
 Set `GEMINI_API_KEY` in the local `.env`; `GEMINI_MODEL` defaults to
-`gemini-3.8-flash`. Briefs and citation checks are written under the git-ignored
+`gemini-3.6-flash`. Briefs and citation checks are written under the git-ignored
 `reports/briefs/` directory.
 
 To list models available to your local API key, run
