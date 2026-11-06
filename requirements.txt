@@ -11,6 +11,7 @@ dbt-core==1.12.6
 dbt-duckdb==1.11.1
 dbt-bigquery==1.12.1
 google-cloud-bigquery>=3.25
+google-genai==2.34.0
 
 # --- Waymo reading (no TensorFlow needed) ---
 protobuf>=6.31,<7     # dbt needs protobuf 6.x; don't upgrade to 7
