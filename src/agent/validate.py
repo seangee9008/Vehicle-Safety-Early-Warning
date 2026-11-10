@@ -7,8 +7,24 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from typing import Any
 
-CITATION_RE = re.compile(r"\[ODINO\s+(\d+)\]", re.IGNORECASE)
+# One bracket pair may hold one or more IDs separated by commas or semicolons, with
+# the ODINO prefix optional after the first: [ODINO 111], [ODINO 111, 222],
+# [ODINO 111; ODINO 222]. Adjacent pairs like [ODINO 111][ODINO 222] match separately.
+CITATION_RE = re.compile(
+    r"\[\s*ODINO\s+(\d+(?:\s*[,;]\s*(?:ODINO\s+)?\d+)*)\s*\]",
+    re.IGNORECASE,
+)
+_ID_RE = re.compile(r"\d+")
 BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+")
+
+
+def extract_citations(text: str) -> list[str]:
+    """Return every cited ODINO ID in order, expanding grouped citations."""
+    return [
+        odino
+        for group in CITATION_RE.findall(text)
+        for odino in _ID_RE.findall(group)
+    ]
 
 
 def _as_date(value: Any) -> date | None:
@@ -60,7 +76,7 @@ def validate_brief(
         if (received := _as_date(row.get("received_date") or row.get("LDATE"))) is not None
         and received < cutoff
     }
-    citations = CITATION_RE.findall(brief)
+    citations = extract_citations(brief)
     valid_ids = [citation for citation in citations if citation in eligible_ids]
     evidence_bullets = _evidence_bullets(brief)
     uncited_bullets = [line.strip() for line in evidence_bullets if not CITATION_RE.search(line)]

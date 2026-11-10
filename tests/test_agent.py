@@ -3,11 +3,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import duckdb
+import pytest
 
 from src.agent import data_access
 from src.agent.brief import create_brief
 from src.agent.run import WATCHLIST_COLUMNS
-from src.agent.validate import validate_brief
+from src.agent.validate import extract_citations, validate_brief
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -134,22 +135,51 @@ def test_validator_rejects_fake_id_and_uncited_bullet():
     assert result["evidence_bullets"] == 3
 
 
-def test_validator_requires_separate_brackets_for_multiple_citations():
-    brief = """## Evidence
-- Two complaints are summarized [ODINO 12345678, ODINO 87654321].
-"""
+GROUPED_COMPLAINTS = [
+    {"odino": "11111111", "received_date": "2018-08-31"},
+    {"odino": "22222222", "received_date": "2018-08-31"},
+]
 
-    result = validate_brief(
-        brief,
-        [
-            {"odino": "12345678", "received_date": "2018-08-31"},
-            {"odino": "87654321", "received_date": "2018-08-31"},
-        ],
-        "2018-09-01",
-    )
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "[ODINO 11111111, 22222222]",
+        "[ODINO 11111111, ODINO 22222222]",
+        "[ODINO 11111111; 22222222]",
+        "[ODINO 11111111][ODINO 22222222]",
+        "[ODINO 11111111], [ODINO 22222222]",
+        "[odino 11111111 , 22222222]",
+    ],
+)
+def test_validator_accepts_grouped_citations(citation):
+    brief = f"## Evidence\n- Two complaints describe the same failure {citation}.\n"
+
+    result = validate_brief(brief, GROUPED_COMPLAINTS, "2018-09-01")
+
+    assert extract_citations(brief) == ["11111111", "22222222"]
+    assert result["citations_total"] == 2
+    assert result["citations_valid"] == 2
+    assert result["citations_invalid"] == 0
+    assert result["bullets_without_citations"] == 0
+
+
+def test_validator_flags_fake_id_inside_group():
+    brief = "## Evidence\n- Grouped [ODINO 11111111, 99999999].\n"
+
+    result = validate_brief(brief, GROUPED_COMPLAINTS, "2018-09-01")
+
+    assert result["citations_total"] == 2
+    assert result["citations_valid"] == 1
+    assert result["invalid_odinos"] == "99999999"
+
+
+def test_validator_rejects_malformed_group():
+    brief = "## Evidence\n- Not a citation [ODINO 11111111, see above].\n"
+
+    result = validate_brief(brief, GROUPED_COMPLAINTS, "2018-09-01")
 
     assert result["citations_total"] == 0
-    assert result["citations_valid"] == 0
     assert result["bullets_without_citations"] == 1
 
 
@@ -294,3 +324,117 @@ def test_description_redacts_common_identifiers():
     assert "555-123-4567" not in redacted
     assert "a@example.com" not in redacted
     assert "1HGCM82633A004352" not in redacted
+
+
+def _api_error(code):
+    from google.genai.errors import ClientError, ServerError
+
+    cls = ClientError if code < 500 else ServerError
+    return cls(code, {"message": f"HTTP {code}"})
+
+
+@pytest.mark.parametrize("code", [429, 503])
+def test_falls_back_to_next_flash_model_on_429_or_503(monkeypatch, code):
+    from src.agent import brief as agent_brief
+
+    monkeypatch.setattr(agent_brief.time, "sleep", lambda _: None)
+    monkeypatch.delenv("GEMINI_FALLBACK_MODELS", raising=False)
+    monkeypatch.setattr(data_access, "get_complaints", lambda *a, **k: [])
+    monkeypatch.setattr(data_access, "severity_counts", lambda rows: {})
+    text = "## Evidence\nnone\n"
+    calls = []
+
+    class FakeModels:
+        def list(self):
+            return [
+                SimpleNamespace(name="models/gemini-3.6-flash", supported_actions=["generateContent"]),
+                SimpleNamespace(name="models/gemini-3.6-flash-lite", supported_actions=["generateContent"]),
+                SimpleNamespace(name="models/gemini-3.6-pro", supported_actions=["generateContent"]),
+                SimpleNamespace(name="models/gemini-3.6-flash-image", supported_actions=["generateContent"]),
+                SimpleNamespace(name="models/gemini-3.5-flash", supported_actions=["generateContent"]),
+            ]
+
+        def generate_content(self, **kwargs):
+            calls.append(kwargs["model"])
+            if kwargs["model"] == "gemini-3.6-flash":
+                raise _api_error(code)
+            part = SimpleNamespace(function_call=None, text=text)
+            return SimpleNamespace(
+                candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))], text=text
+            )
+
+    _, validation = create_brief(
+        {"month": "2018-09-01", "make": "FORD", "model": "FUSION",
+         "model_year": "2010", "component": "AIR BAGS"},
+        client=SimpleNamespace(models=FakeModels()),
+        model_name="gemini-3.6-flash",
+    )
+
+    retries = agent_brief.MAX_RETRIES_PER_MODEL + 1
+    assert calls == ["gemini-3.6-flash"] * retries + ["gemini-3.6-flash-lite"]
+    assert validation["model_used"] == "gemini-3.6-flash-lite"
+
+
+def test_fallback_order_prefers_newer_flash_over_lite():
+    from src.agent.brief import fallback_models
+
+    models = SimpleNamespace(
+        list=lambda: [
+            SimpleNamespace(name=f"models/{name}", supported_actions=["generateContent"])
+            for name in (
+                "gemini-3.5-flash", "gemini-3.6-flash-lite", "gemini-3.6-flash",
+                "gemini-3.6-flash-tts", "gemini-3.6-pro", "text-embedding-004",
+            )
+        ]
+    )
+
+    assert fallback_models(SimpleNamespace(models=models)) == [
+        "gemini-3.6-flash", "gemini-3.6-flash-lite", "gemini-3.5-flash",
+    ]
+
+
+def test_non_retryable_error_does_not_fall_back(monkeypatch):
+    from src.agent import brief as agent_brief
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            raise _api_error(400)
+
+    with pytest.raises(agent_brief.APIError):
+        agent_brief._generate_with_backoff(
+            SimpleNamespace(models=FakeModels()), model="m", contents=[], config=None
+        )
+
+
+def test_run_skips_existing_brief_unless_forced(tmp_path, monkeypatch):
+    from src.agent import run as agent_run
+
+    monkeypatch.setattr(agent_run, "BRIEFS_DIR", tmp_path)
+    monkeypatch.setattr(agent_run, "VALIDATION_PATH", tmp_path / "validation.csv")
+    monkeypatch.setattr(
+        agent_run.data_access,
+        "get_complaints",
+        lambda *a, **k: [{"odino": "11111111", "received_date": "2018-08-31"}],
+    )
+    brief = "## Evidence\n- a [ODINO 11111111]\n- b [ODINO 11111111]\n- c [ODINO 11111111]\n"
+    generated = []
+
+    def fake_create_brief(item):
+        generated.append(item["make"])
+        return brief, {**validate_brief(brief, [{"odino": "11111111",
+                                                "received_date": "2018-08-31"}],
+                                        "2018-09-01"), "model_used": "mock-flash"}
+
+    monkeypatch.setattr(agent_run, "create_brief", fake_create_brief)
+    watchlist = ROOT / "src" / "agent" / "fixtures" / "watchlist_sample.csv"
+
+    agent_run.run(watchlist, 1)
+    agent_run.run(watchlist, 1)
+    assert generated == ["FORD"]
+    with (tmp_path / "validation.csv").open(newline="") as file:
+        row = next(csv.DictReader(file))
+    assert row["source"] == "cached"
+    assert row["model_used"] == "mock-flash"
+
+    agent_run.run(watchlist, 1, force=True)
+    assert generated == ["FORD", "FORD"]

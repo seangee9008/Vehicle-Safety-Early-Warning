@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import time
 from collections.abc import Mapping
 from datetime import date
@@ -21,7 +22,8 @@ from src.agent.validate import validate_brief
 ROOT = data_access.ROOT
 DEFAULT_MODEL = "gemini-3.6-flash"
 MAX_TOOL_CALLS = 6
-MAX_RATE_LIMIT_RETRIES = 5
+COMPLAINT_LIMIT = 40
+MAX_RETRIES_PER_MODEL = 2
 
 load_dotenv(ROOT / ".env")
 
@@ -89,12 +91,30 @@ TOOL_CONFIG = [
 ]
 
 
-def _is_rate_limited(error: Exception) -> bool:
-    return (
-        getattr(error, "code", None) == 429
-        or getattr(error, "status_code", None) == 429
-        or "429" in str(error)
-    )
+RETRYABLE_STATUS_CODES = frozenset({429, 503})
+_FLASH_MODEL_RE = re.compile(r"^gemini-[\w.]+-flash(?:-lite)?(?:-[\w.]+)?$")
+_EXCLUDED_MODEL_WORDS = ("image", "tts", "live", "audio", "embedding", "thinking", "computer")
+
+
+class ModelUnavailableError(RuntimeError):
+    """A model kept returning 429/503, so the caller should try another model."""
+
+    def __init__(self, model: str, status: int | None, error: Exception) -> None:
+        super().__init__(f"{model} unavailable (HTTP {status}): {error}")
+        self.model = model
+        self.status = status
+
+
+def _status_code(error: Exception) -> int | None:
+    for attribute in ("code", "status_code"):
+        value = getattr(error, attribute, None)
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def _is_retryable(error: Exception) -> bool:
+    return _status_code(error) in RETRYABLE_STATUS_CODES
 
 
 def _generate_with_backoff(
@@ -104,7 +124,8 @@ def _generate_with_backoff(
     contents: list[types.Content],
     config: types.GenerateContentConfig,
 ) -> Any:
-    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+    """Call one model, retrying 429/503 briefly before giving up on that model."""
+    for attempt in range(MAX_RETRIES_PER_MODEL + 1):
         try:
             return client.models.generate_content(
                 model=model,
@@ -112,11 +133,45 @@ def _generate_with_backoff(
                 config=config,
             )
         except APIError as error:
-            if not _is_rate_limited(error) or attempt == MAX_RATE_LIMIT_RETRIES:
+            if not _is_retryable(error):
                 raise
-            delay = min(2**attempt + random.random(), 30.0)
-            time.sleep(delay)
+            if attempt == MAX_RETRIES_PER_MODEL:
+                raise ModelUnavailableError(model, _status_code(error), error) from error
+            time.sleep(min(2**attempt + random.random(), 30.0))
     raise RuntimeError("Gemini request retry loop ended unexpectedly")
+
+
+def _flash_sort_key(name: str) -> tuple[Any, ...]:
+    version = re.match(r"gemini-([\d.]+)", name)
+    numbers = tuple(int(n) for n in version.group(1).split(".") if n) if version else ()
+    return (
+        tuple(-n for n in numbers),
+        "-lite" in name,
+        "preview" in name or "exp" in name,
+        name,
+    )
+
+
+def fallback_models(client: Any) -> list[str]:
+    """Flash / Flash-Lite text models the key can call, newest first.
+
+    GEMINI_FALLBACK_MODELS (comma-separated) overrides the API model list.
+    """
+    configured = os.environ.get("GEMINI_FALLBACK_MODELS", "").strip()
+    if configured:
+        return [name.strip() for name in configured.split(",") if name.strip()]
+    names = []
+    for model in client.models.list():
+        name = str(getattr(model, "name", "") or "").removeprefix("models/")
+        actions = getattr(model, "supported_actions", None)
+        if actions is not None and "generateContent" not in actions:
+            continue
+        if not _FLASH_MODEL_RE.match(name):
+            continue
+        if any(word in name for word in _EXCLUDED_MODEL_WORDS):
+            continue
+        names.append(name)
+    return sorted(set(names), key=_flash_sort_key)
 
 
 def _plain_date(value: Any) -> str:
@@ -138,15 +193,38 @@ def create_brief(
     client: Any | None = None,
     model_name: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Generate one markdown brief and its deterministic citation validation."""
+    """Generate one markdown brief and its deterministic citation validation.
+
+    Tries GEMINI_MODEL (or ``model_name``) first. If it keeps returning 429/503, the
+    brief is restarted from scratch on the next Flash / Flash-Lite model, so each
+    brief is written by exactly one model. ``validation["model_used"]`` names it.
+    """
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if client is None and not api_key:
         raise RuntimeError("GEMINI_API_KEY is empty; set it in the local .env file.")
     owns_client = client is None
     if client is None:
         client = genai.Client(api_key=api_key)
+    primary = model_name or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
     try:
-        return _create_brief_with_client(item, client, model_name)
+        tried: list[str] = []
+        candidates: list[str] = [primary]
+        fallbacks_loaded = False
+        while candidates:
+            model_id = candidates.pop(0)
+            if model_id in tried:
+                continue
+            tried.append(model_id)
+            try:
+                text, validation = _create_brief_with_client(item, client, model_id)
+            except ModelUnavailableError as error:
+                print(f"  {error.model} returned HTTP {error.status}; trying next model")
+                if not fallbacks_loaded:
+                    candidates.extend(fallback_models(client))
+                    fallbacks_loaded = True
+                continue
+            return text, {**validation, "model_used": model_id}
+        raise RuntimeError(f"All models unavailable (429/503): {', '.join(tried)}")
     finally:
         if owns_client:
             client.close()
@@ -155,17 +233,16 @@ def create_brief(
 def _create_brief_with_client(
     item: Mapping[str, Any],
     client: Any,
-    model_name: str | None,
+    model_id: str,
 ) -> tuple[str, dict[str, Any]]:
     make = str(_row_value(item, "make"))
     model = str(_row_value(item, "model"))
     model_year = int(_row_value(item, "model_year"))
     component = str(_row_value(item, "component"))
     cutoff = _plain_date(_row_value(item, "month"))
-    model_id = model_name or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
 
     complaints = data_access.get_complaints(
-        make, model, model_year, component, cutoff, limit=40
+        make, model, model_year, component, cutoff, limit=COMPLAINT_LIMIT
     )
     severity = data_access.severity_counts(complaints)
     prompt_item = {
