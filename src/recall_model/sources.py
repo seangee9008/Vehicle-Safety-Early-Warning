@@ -17,10 +17,12 @@ RECALL_COLUMNS = ["campaign_id", "make", "model", "model_year", "component", "re
 
 
 def component_sql(col):
-    # Temporary part-name map for the four known mismatches. The dbt map replaces it.
+    # Temporary part-name map for the known mismatches. The dbt map replaces it.
+    # Shared names are the newer complaint names, so the agent's LIKE match on raw complaints finds them.
     part = f"upper(trim(split_part({col}, ':', 1)))"
     return f"""case
-        when {part} like 'FUEL%' then 'FUEL SYSTEM'
+        when {part} like 'FUEL%' then 'FUEL/PROPULSION SYSTEM'
+        when {part} like 'ELECTRONIC STABILITY CONTROL%' then 'ELECTRONIC STABILITY CONTROL (ESC)'
         when {part} = 'ENGINE AND ENGINE COOLING' then 'ENGINE'
         when {part} like 'SERVICE BRAKES%' then 'SERVICE BRAKES'
         when {part} = 'VISIBILITY/WIPER' then 'VISIBILITY'
@@ -58,8 +60,21 @@ from raw.recalls
 where RCLTYPECD = 'V' and YEARTXT <> '9999'
 """
 
-DBT_COMPLAINTS = f"select {', '.join(COMPLAINT_COLUMNS)} from main.stg_complaints"
-DBT_RECALLS = f"select {', '.join(RECALL_COLUMNS)} from main.stg_recalls"
+# the contract doesn't fix types, so cast them to what the raw queries give
+DBT_COMPLAINTS = """
+select complaint_id::varchar as complaint_id, odino::varchar as odino, make, model,
+       try_cast(model_year as int) as model_year, component,
+       try_cast(received_date as date) as received_date,
+       try_cast(is_crash as boolean) as is_crash, try_cast(is_fire as boolean) as is_fire,
+       coalesce(try_cast(injured as int), 0) as injured, coalesce(try_cast(deaths as int), 0) as deaths,
+       try_cast(miles as int) as miles, narrative
+from main.stg_complaints
+"""
+DBT_RECALLS = """
+select campaign_id::varchar as campaign_id, make, model, try_cast(model_year as int) as model_year,
+       component, try_cast(recall_date as date) as recall_date, defect_summary
+from main.stg_recalls
+"""
 
 SOURCES = {
     "raw": (RAW_COMPLAINTS, RAW_RECALLS),

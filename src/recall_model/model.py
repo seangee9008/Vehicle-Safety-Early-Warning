@@ -83,33 +83,41 @@ def flags(pred, col):
 
 
 def recall_events(source, start, end):
-    # every vehicle recall (car + part + date) in the period, and whether the cell had a complaint first
+    # every vehicle recall (car + part + date) in the period, the cell's previous recall, and
+    # whether the cell had a complaint between the two
     complaints_sql, recalls_sql = get_sql(source)
-    con = connect()
-    events = con.sql(f"""
-        with r as (
-            select distinct make, model, model_year, component, recall_date
-            from ({recalls_sql})
-            where recall_date between date '{start}' and date '{end}' and model_year is not null
-        ),
-        c as (
-            select make, model, model_year, component, min(received_date) as first_complaint
-            from ({complaints_sql}) group by all
-        )
-        select r.*, coalesce(c.first_complaint < r.recall_date, false) as had_complaints
-        from r left join c using (make, model, model_year, component)
-    """).df()
+    with connect() as con:
+        events = con.sql(f"""
+            with r as (
+                select *, lag(recall_date) over (partition by make, model, model_year, component
+                                                 order by recall_date) as prev_recall_date
+                from (select distinct make, model, model_year, component, recall_date
+                      from ({recalls_sql}) where recall_date is not null and model_year is not null)
+            ),
+            c as (select make, model, model_year, component, received_date from ({complaints_sql}))
+            select r.make, r.model, r.model_year, r.component, r.recall_date, r.prev_recall_date,
+                   count(c.received_date) > 0 as had_complaints
+            from r left join c
+              on r.make = c.make and r.model = c.model and r.model_year = c.model_year
+             and r.component = c.component and c.received_date < r.recall_date
+             and (r.prev_recall_date is null or c.received_date > r.prev_recall_date)
+            where r.recall_date between date '{start}' and date '{end}'
+            group by all
+        """).df()
     events["recall_date"] = pd.to_datetime(events["recall_date"])
+    events["prev_recall_date"] = pd.to_datetime(events["prev_recall_date"])
     return events
 
 
 def warning_weeks(flagged, events):
-    # first top-20 flag in the 12 months before each recall; the flag is known at month end
+    # first top-20 flag in the 12 months before each recall and after the cell's previous recall;
+    # the flag is known at month end
     f = flagged[KEYS + ["month"]].copy()
     f["as_of"] = f["month"] + pd.offsets.MonthEnd(0)
     m = events.merge(f, on=KEYS, how="left")
     m = m[(m["as_of"] < m["recall_date"])
-          & (m["as_of"] >= m["recall_date"] - pd.DateOffset(months=LOOKBACK_MONTHS))]
+          & (m["as_of"] >= m["recall_date"] - pd.DateOffset(months=LOOKBACK_MONTHS))
+          & (m["prev_recall_date"].isna() | (m["month"] > m["prev_recall_date"]))]
     first = m.groupby(KEYS + ["recall_date"], observed=True)["as_of"].min().rename("first_flag").reset_index()
     out = events.merge(first, on=KEYS + ["recall_date"], how="left")
     out["weeks"] = (out["recall_date"] - out["first_flag"]).dt.days / 7
@@ -122,6 +130,8 @@ def metrics(pred, events, col, lead_in=None):
     pool = flagged if lead_in is None else pd.concat([flags(lead_in, col), flagged])
     caught = warning_weeks(pool, events)
     with_cmpl = caught[caught["had_complaints"]]
+    # after a cell's first recall its complaints never count again, so only first recalls can be caught
+    first = with_cmpl[with_cmpl["prev_recall_date"].isna()]
     return {
         "precision_at_20": flagged.groupby("month")["y"].mean().mean(),
         "pr_auc": average_precision_score(pred["y"], pred[col]),
@@ -129,6 +139,8 @@ def metrics(pred, events, col, lead_in=None):
         "recalls_with_complaints": len(with_cmpl),
         "catch_rate_all": caught["weeks"].notna().mean(),
         "catch_rate_with_complaints": with_cmpl["weeks"].notna().mean(),
+        "first_recalls_with_complaints": len(first),
+        "catch_rate_first_with_complaints": first["weeks"].notna().mean(),
         "median_weeks_warning": caught["weeks"].median(),
     }, caught
 
@@ -180,8 +192,8 @@ def main():
     results = pd.concat([val_report, test_report])
     results.insert(0, "source", args.source)
 
-    val["split"], test["split"] = "val", "test"
-    pred = pd.concat([val, test])[KEYS + ["month", "split", "y", "baseline", "score"] + MODEL_FEATURES]
+    val["split"], lead_in["split"], test["split"] = "val", "lead_in", "test"
+    pred = pd.concat([val, lead_in, test])[KEYS + ["month", "split", "y", "baseline", "score"] + MODEL_FEATURES]
     pred.to_parquet(OUT / f"predictions_{args.source}.parquet", index=False)
     caught.to_csv(OUT / f"warning_weeks_{args.source}.csv", index=False)
     (OUT / "models").mkdir(exist_ok=True)

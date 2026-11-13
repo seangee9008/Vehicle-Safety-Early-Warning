@@ -15,14 +15,24 @@ def test_known_by_keeps_only_closed_labels():
 def test_warning_weeks_uses_first_flag_before_recall():
     flagged = pd.DataFrame([{**CELL, "month": pd.Timestamp(m)}
                             for m in ["2018-01-01", "2019-02-01", "2019-03-01", "2019-06-01"]])
-    events = pd.DataFrame([{**CELL, "recall_date": pd.Timestamp("2019-05-31"), "had_complaints": True},
+    events = pd.DataFrame([{**CELL, "recall_date": pd.Timestamp("2019-05-31"), "prev_recall_date": pd.NaT,
+                            "had_complaints": True},
                            {**CELL, "component": "ENGINE", "recall_date": pd.Timestamp("2019-05-31"),
-                            "had_complaints": False}])
+                            "prev_recall_date": pd.NaT, "had_complaints": False}])
     out = warning_weeks(flagged, events).set_index("component")
     # 2018-01 is more than 12 months early and 2019-06 is after the recall
     assert out.loc["AIR BAGS", "first_flag"] == pd.Timestamp("2019-02-28")
     assert round(out.loc["AIR BAGS", "weeks"], 1) == 13.1
     assert pd.isna(out.loc["ENGINE", "weeks"])
+
+
+def test_warning_weeks_ignores_flags_before_previous_recall():
+    flagged = pd.DataFrame([{**CELL, "month": pd.Timestamp(m)} for m in ["2019-01-01", "2019-04-01"]])
+    events = pd.DataFrame([{**CELL, "recall_date": pd.Timestamp("2019-08-15"),
+                            "prev_recall_date": pd.Timestamp("2019-03-10"), "had_complaints": True}])
+    out = warning_weeks(flagged, events)
+    # the January flag was warning about the March recall
+    assert out.loc[0, "first_flag"] == pd.Timestamp("2019-04-30")
 
 
 def test_watchlist_columns():

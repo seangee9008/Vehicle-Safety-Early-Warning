@@ -2,6 +2,7 @@ import duckdb
 import pytest
 
 from src.recall_model.features import CONTRACT, FEATURES, build_features
+from src.recall_model.sources import component_sql
 
 # odino 1 lists two parts; odino 2 shows up twice under AIR BAGS; odino 4 comes after the recall
 COMPLAINTS = """
@@ -63,3 +64,12 @@ def test_share_age_miles_label(rows):
     assert rows[("AIR BAGS", "2016-01-01")].vehicle_age == 1
     assert rows[("AIR BAGS", "2016-01-01")].label
     assert not rows[("ENGINE", "2016-01-01")].label
+
+
+def test_part_map():
+    names = ["FUEL/PROPULSION SYSTEM", "FUEL SYSTEM, GASOLINE:DELIVERY", "ENGINE AND ENGINE COOLING:ENGINE",
+             "SERVICE BRAKES, HYDRAULIC:FOUNDATION", "VISIBILITY/WIPER", "AIR BAGS:FRONTAL"]
+    values = ", ".join(f"('{n}')" for n in names)
+    got = duckdb.sql(f"select {component_sql('c')} from (values {values}) t(c)").fetchall()
+    assert [g[0] for g in got] == ["FUEL/PROPULSION SYSTEM", "FUEL/PROPULSION SYSTEM", "ENGINE",
+                                   "SERVICE BRAKES", "VISIBILITY", "AIR BAGS"]

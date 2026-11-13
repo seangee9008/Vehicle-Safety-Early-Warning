@@ -60,7 +60,7 @@ def labels_sql(con, complaints_sql, recalls_sql, horizons=(3, 6, 12), start=None
           on m.month >= cells.first_month
     ),
     recalls as (
-        select {KEYS}, recall_date, string_agg(distinct campaign_id, ',') as campaign_ids
+        select {KEYS}, recall_date, string_agg(distinct campaign_id, ',' order by campaign_id) as campaign_ids
         from ({recalls_sql})
         where recall_date is not null and model_year is not null
         group by all
