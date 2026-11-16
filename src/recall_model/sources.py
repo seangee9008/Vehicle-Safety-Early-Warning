@@ -1,7 +1,8 @@
-"""Complaint and recall inputs for the recall model, from raw tables or the dbt stg_ tables.
+"""Complaint and recall inputs for the recall model, from raw tables or the cleaned stg tables.
 
-Both versions return the stg_complaints / stg_recalls contract columns from AGENTS.md, so
-nothing downstream knows which one it got. Pick one with --source raw|dbt.
+Both versions return the same columns, named like Angelina's stg.complaints / stg.recalls
+(built by scripts/nhtsa_data_table_cleaning.py), so nothing downstream knows which one it got.
+Pick one with --source raw|stg.
 """
 from pathlib import Path
 
@@ -11,13 +12,13 @@ ROOT = Path(__file__).resolve().parents[2]
 DB = ROOT / "data" / "nhtsa.duckdb"
 OUT = ROOT / "data" / "processed"
 
-COMPLAINT_COLUMNS = ["complaint_id", "odino", "make", "model", "model_year", "component", "received_date",
-                     "is_crash", "is_fire", "injured", "deaths", "miles", "narrative"]
-RECALL_COLUMNS = ["campaign_id", "make", "model", "model_year", "component", "recall_date", "defect_summary"]
+COMPLAINT_COLUMNS = ["cmpl_id", "odi_no", "make", "model", "model_year", "component", "ldate",
+                     "is_crash", "is_fire", "injured_count", "deaths_count", "miles", "narrative"]
+RECALL_COLUMNS = ["camp_no", "make", "model", "model_year", "component", "recall_date", "defect_summary"]
 
 
 def component_sql(col):
-    # Temporary part-name map for the known mismatches. The dbt map replaces it.
+    # Temporary part-name map for the known mismatches, raw path only.
     # Shared names are the newer complaint names, so the agent's LIKE match on raw complaints finds them.
     part = f"upper(trim(split_part({col}, ':', 1)))"
     return f"""case
@@ -30,18 +31,18 @@ def component_sql(col):
 
 
 RAW_COMPLAINTS = f"""
-select CMPLID as complaint_id,
-       ODINO as odino,
+select CMPLID as cmpl_id,
+       ODINO as odi_no,
        upper(trim(MAKETXT)) as make,
        upper(trim(MODELTXT)) as model,
        try_cast(YEARTXT as int) as model_year,
        {component_sql('COMPDESC')} as component,
-       try_strptime(LDATE, '%Y%m%d')::date as received_date,
-       CRASH = 'Y' as is_crash,
-       FIRE = 'Y' as is_fire,
-       coalesce(try_cast(INJURED as int), 0) as injured,
-       coalesce(try_cast(DEATHS as int), 0) as deaths,
-       try_cast(MILES as int) as miles,
+       try_strptime(LDATE, '%Y%m%d')::date as ldate,
+       (CRASH = 'Y')::int as is_crash,
+       (FIRE = 'Y')::int as is_fire,
+       coalesce(try_cast(INJURED as int), 0) as injured_count,
+       coalesce(try_cast(DEATHS as int), 0) as deaths_count,
+       try_cast(MILES as double) as miles,
        CDESCR as narrative
 from raw.complaints
 where PROD_TYPE = 'V' and YEARTXT <> '9999'
@@ -49,7 +50,7 @@ where PROD_TYPE = 'V' and YEARTXT <> '9999'
 """
 
 RAW_RECALLS = f"""
-select CAMPNO as campaign_id,
+select CAMPNO as camp_no,
        upper(trim(MAKETXT)) as make,
        upper(trim(MODELTXT)) as model,
        try_cast(YEARTXT as int) as model_year,
@@ -60,25 +61,26 @@ from raw.recalls
 where RCLTYPECD = 'V' and YEARTXT <> '9999'
 """
 
-# the contract doesn't fix types, so cast them to what the raw queries give
-DBT_COMPLAINTS = """
-select complaint_id::varchar as complaint_id, odino::varchar as odino, make, model,
+# casts keep the types the same as the raw queries even if the stg types change
+STG_COMPLAINTS = """
+select cmpl_id::varchar as cmpl_id, odi_no::varchar as odi_no, make, model,
        try_cast(model_year as int) as model_year, component,
-       try_cast(received_date as date) as received_date,
-       try_cast(is_crash as boolean) as is_crash, try_cast(is_fire as boolean) as is_fire,
-       coalesce(try_cast(injured as int), 0) as injured, coalesce(try_cast(deaths as int), 0) as deaths,
-       try_cast(miles as int) as miles, narrative
-from main.stg_complaints
+       try_cast(ldate as date) as ldate,
+       try_cast(is_crash as int) as is_crash, try_cast(is_fire as int) as is_fire,
+       coalesce(try_cast(injured_count as int), 0) as injured_count,
+       coalesce(try_cast(deaths_count as int), 0) as deaths_count,
+       try_cast(miles as double) as miles, narrative
+from stg.complaints
 """
-DBT_RECALLS = """
-select campaign_id::varchar as campaign_id, make, model, try_cast(model_year as int) as model_year,
+STG_RECALLS = """
+select camp_no::varchar as camp_no, make, model, try_cast(model_year as int) as model_year,
        component, try_cast(recall_date as date) as recall_date, defect_summary
-from main.stg_recalls
+from stg.recalls
 """
 
 SOURCES = {
     "raw": (RAW_COMPLAINTS, RAW_RECALLS),
-    "dbt": (DBT_COMPLAINTS, DBT_RECALLS),
+    "stg": (STG_COMPLAINTS, STG_RECALLS),
 }
 
 
@@ -90,6 +92,18 @@ def get_sql(source):
 
 def connect():
     return duckdb.connect(str(DB), read_only=True)
+
+
+def check_columns(con, source):
+    # fail loudly if a stg table is missing a column the model reads
+    if source == "raw":
+        return
+    for table, cols in [("stg.complaints", COMPLAINT_COLUMNS), ("stg.recalls", RECALL_COLUMNS)]:
+        have = {r[0] for r in con.sql(f"describe {table}").fetchall()}
+        missing = [c for c in cols if c not in have]
+        if missing:
+            raise SystemExit(f"{table} is missing columns {missing}; run scripts/nhtsa_data_table_cleaning.py "
+                             f"or check the column names with the data lane")
 
 
 def add_source_arg(parser):

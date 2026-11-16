@@ -1,8 +1,9 @@
 """Build monthly_features: one row per (make, model, model_year, component, month) with labels.
 
 A month's row only uses complaints received (LDATE) by the end of that month. Counts are
-distinct odino. Complaints received on or after a cell's first recall are dropped, so they
+distinct odi_no. Complaints received on or after a cell's first recall are dropped, so they
 never count toward its next flag. label = recalled within 6 months (y_6m).
+kw_*_3m count complaints whose text mentions a keyword.
 
     python -m src.recall_model.features --source raw
 """
@@ -11,15 +12,32 @@ import argparse
 import duckdb
 
 from src.recall_model.labels import KEYS, labels_sql
-from src.recall_model.sources import DB, OUT, add_source_arg, connect, get_sql
+from src.recall_model.sources import (
+    DB,
+    OUT,
+    add_source_arg,
+    check_columns,
+    connect,
+    get_sql,
+)
 
 # contract columns from AGENTS.md first, then extras
 CONTRACT = ["make", "model", "model_year", "component", "month",
             "cmpl_1m", "cmpl_3m", "cmpl_6m", "severe_3m", "vehicle_age", "label"]
 FEATURES = ["cmpl_1m", "cmpl_3m", "cmpl_6m", "cmpl_12m", "growth_3m", "share_of_car",
             "severe_3m", "crash_3m", "fire_3m", "injured_3m", "deaths_3m",
-            "vehicle_age", "median_miles_12m"]
+            "vehicle_age", "median_miles_12m", "months_since_recall"]
 CAR = "make, model, model_year"
+
+# keyword flags on the complaint text
+KEYWORDS = {
+    "stall": r"\bstall",
+    "smoke": r"smok|burning smell",
+    "no_warning": r"no warning|without (any )?warning",
+    "lost_power": r"shut off|shuts off|shut down|lost power|loss of power",
+    "tow": r"\btow(ed|ing)?\b",
+}
+FEATURES += [f"kw_{k}_3m" for k in KEYWORDS]
 
 
 def window(col, months):
@@ -29,19 +47,26 @@ def window(col, months):
 def build_features(con, complaints_sql, recalls_sql, horizons=(3, 6, 12), start=None, end=None):
     panel = labels_sql(con, complaints_sql, recalls_sql, horizons, start, end)
     ys = ", ".join(f"y_{h}m" for h in horizons)
+    kw_flags = " ".join(f"max(coalesce(regexp_matches(lower(narrative), '{p}'), false)::int) as kw_{k},"
+                        for k, p in KEYWORDS.items())
+    kw_sums = "".join(f", sum(kw_{k}) as n_kw_{k}" for k in KEYWORDS)
+    kw_zeros = "".join(f", coalesce(cm.n_kw_{k}, 0) as n_kw_{k}" for k in KEYWORDS)
+    kw_windows = " ".join(f"{window(f'n_kw_{k}', 3)} as kw_{k}_3m," for k in KEYWORDS)
+    kw_cols = ", ".join(f"kw_{k}_3m" for k in KEYWORDS)
     return con.sql(f"""
     with panel_v as ({panel}),
     c as (
-        select {KEYS}, odino, received_date,
-               date_trunc('month', received_date)::date as month,
+        select {KEYS}, odi_no as odino, ldate as received_date,
+               date_trunc('month', ldate)::date as month,
                max(coalesce(is_crash::int, 0)) = 1 as crash,
                max(coalesce(is_fire::int, 0)) = 1 as fire,
-               max(coalesce(injured, 0)) as injured,
-               max(coalesce(deaths, 0)) as deaths,
+               max(coalesce(injured_count, 0)) as injured,
+               max(coalesce(deaths_count, 0)) as deaths,
+               {kw_flags}
                max(miles) as miles
         from ({complaints_sql})
-        where received_date is not null and model_year is not null
-        group by {KEYS}, odino, received_date
+        where ldate is not null and model_year is not null
+        group by {KEYS}, odi_no, ldate
     ),
     first_recall as (
         select {KEYS}, min(recall_date) as first_recall_date
@@ -59,6 +84,7 @@ def build_features(con, complaints_sql, recalls_sql, horizons=(3, 6, 12), start=
                sum((injured > 0)::int) as n_injured,
                sum((deaths > 0)::int) as n_deaths,
                sum((crash or fire or injured > 0 or deaths > 0)::int) as n_severe
+               {kw_sums}
         from kept group by all
     ),
     car_month as (
@@ -88,6 +114,7 @@ def build_features(con, complaints_sql, recalls_sql, horizons=(3, 6, 12), start=
                coalesce(cm.n, 0) as n, coalesce(cm.n_crash, 0) as n_crash, coalesce(cm.n_fire, 0) as n_fire,
                coalesce(cm.n_injured, 0) as n_injured, coalesce(cm.n_deaths, 0) as n_deaths,
                coalesce(cm.n_severe, 0) as n_severe
+               {kw_zeros}
         from panel_v left join cell_month cm using ({KEYS}, month)
     ),
     w as (
@@ -101,6 +128,7 @@ def build_features(con, complaints_sql, recalls_sql, horizons=(3, 6, 12), start=
                {window('n_fire', 3)} as fire_3m,
                {window('n_injured', 3)} as injured_3m,
                {window('n_deaths', 3)} as deaths_3m,
+               {kw_windows}
                {ys}, next_recall_date, next_recall_campaign_ids, last_recall_date
         from p
     )
@@ -113,6 +141,8 @@ def build_features(con, complaints_sql, recalls_sql, horizons=(3, 6, 12), start=
            coalesce(cmpl_3m / nullif(car_n_3m, 0), 0) as share_of_car,
            crash_3m, fire_3m, injured_3m, deaths_3m,
            median_miles_12m,
+           datediff('month', last_recall_date, w.month) as months_since_recall,
+           {kw_cols},
            {ys}, next_recall_date, next_recall_campaign_ids, last_recall_date
     from w
     left join car_3m using ({CAR}, month)
@@ -138,6 +168,7 @@ if __name__ == "__main__":
 
     out = features_path(args.source)
     with connect() as con:
+        check_columns(con, args.source)
         con.execute("set preserve_insertion_order = false")
         build_features(con, *get_sql(args.source)).write_parquet(str(out))
         n, cells, lo, hi, y6 = con.sql(f"""

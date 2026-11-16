@@ -12,6 +12,7 @@ from src.recall_model.sources import (
     RAW_COMPLAINTS,
     RAW_RECALLS,
     add_source_arg,
+    check_columns,
     connect,
     get_sql,
 )
@@ -23,8 +24,8 @@ JOIN = "p.make = r.make and p.model = r.model and p.model_year = r.model_year an
 def month_range(con, complaints_sql):
     # first and last full month of complaints in the input
     lo, hi = con.sql(f"""
-        select date_trunc('month', min(received_date))::date,
-               date_trunc('month', max(received_date) + interval 1 day)::date - interval 1 month
+        select date_trunc('month', min(ldate))::date,
+               date_trunc('month', max(ldate) + interval 1 day)::date - interval 1 month
         from ({complaints_sql})
     """).fetchall()[0]
     return str(lo), str(hi)[:10]
@@ -44,9 +45,9 @@ def labels_sql(con, complaints_sql, recalls_sql, horizons=(3, 6, 12), start=None
     )
     return f"""
     with monthly as (
-        select {KEYS}, date_trunc('month', received_date)::date as month, count(*) as n_complaints
+        select {KEYS}, date_trunc('month', ldate)::date as month, count(*) as n_complaints
         from ({complaints_sql})
-        where received_date is not null and model_year is not null
+        where ldate is not null and model_year is not null
         group by all
     ),
     cells as (
@@ -60,7 +61,7 @@ def labels_sql(con, complaints_sql, recalls_sql, horizons=(3, 6, 12), start=None
           on m.month >= cells.first_month
     ),
     recalls as (
-        select {KEYS}, recall_date, string_agg(distinct campaign_id, ',' order by campaign_id) as campaign_ids
+        select {KEYS}, recall_date, string_agg(distinct camp_no, ',' order by camp_no) as campaign_ids
         from ({recalls_sql})
         where recall_date is not null and model_year is not null
         group by all
@@ -87,6 +88,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     con = connect()
+    check_columns(con, args.source)
     out = OUT / f"recall_labels_{args.source}.parquet"
     build_labels(con, *get_sql(args.source)).write_parquet(str(out))
 

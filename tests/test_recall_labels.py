@@ -6,14 +6,14 @@ COMPLAINTS = """
 select * from (values
     ('FORD', 'F-150', 2015, 'AIR BAGS', date '2016-01-10'),
     ('FORD', 'F-150', 2015, 'AIR BAGS', date '2016-03-05')
-) t(make, model, model_year, component, received_date)
+) t(make, model, model_year, component, ldate)
 """
 
 RECALLS = """
 select * from (values
     ('FORD', 'F-150', 2015, 'AIR BAGS', date '2016-05-20', '16V001000'),
     ('FORD', 'F-150', 2015, 'ENGINE', date '2016-02-01', '16V002000')
-) t(make, model, model_year, component, recall_date, campaign_id)
+) t(make, model, model_year, component, recall_date, camp_no)
 """
 
 
@@ -36,3 +36,15 @@ def test_labels():
     assert rows["2016-02-01"][:3] == (0, True, True)
     assert rows["2016-05-01"][1:4] == (False, False, True)
     assert rows["2016-01-01"][4] == "16V001000"  # engine recall shouldn't count
+
+
+def test_check_columns_fails_on_missing_column():
+    import pytest
+
+    from src.recall_model.sources import check_columns
+    con = duckdb.connect()
+    con.execute("create schema stg")
+    con.execute("create table stg.complaints (cmpl_id varchar, odi_no varchar)")
+    con.execute("create table stg.recalls (camp_no varchar)")
+    with pytest.raises(SystemExit, match="missing columns"):
+        check_columns(con, "stg")

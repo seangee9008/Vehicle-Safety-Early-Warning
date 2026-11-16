@@ -1,4 +1,5 @@
 import duckdb
+import pandas as pd
 import pytest
 
 from src.recall_model.features import CONTRACT, FEATURES, build_features
@@ -7,20 +8,20 @@ from src.recall_model.sources import component_sql
 # odino 1 lists two parts; odino 2 shows up twice under AIR BAGS; odino 4 comes after the recall
 COMPLAINTS = """
 select * from (values
-    ('c1', '1', 'FORD', 'F-150', 2015, 'AIR BAGS', date '2016-01-10', true, false, 0, 0, 1000, ''),
+    ('c1', '1', 'FORD', 'F-150', 2015, 'AIR BAGS', date '2016-01-10', true, false, 0, 0, 1000, 'DEALER INSTALLED A NEW PART'),
     ('c1', '1', 'FORD', 'F-150', 2015, 'ENGINE', date '2016-01-10', true, false, 0, 0, 1000, ''),
     ('c2', '2', 'FORD', 'F-150', 2015, 'AIR BAGS', date '2016-01-20', false, true, 1, 0, null, ''),
     ('c2', '2', 'FORD', 'F-150', 2015, 'AIR BAGS', date '2016-01-20', false, true, 1, 0, null, ''),
-    ('c3', '3', 'FORD', 'F-150', 2015, 'AIR BAGS', date '2016-03-05', false, false, 0, 0, 3000, ''),
+    ('c3', '3', 'FORD', 'F-150', 2015, 'AIR BAGS', date '2016-03-05', false, false, 0, 0, 3000, 'CAR STALLED AND WAS TOWED'),
     ('c4', '4', 'FORD', 'F-150', 2015, 'AIR BAGS', date '2016-06-01', false, false, 0, 0, 5000, '')
-) t(complaint_id, odino, make, model, model_year, component, received_date,
-    is_crash, is_fire, injured, deaths, miles, narrative)
+) t(cmpl_id, odi_no, make, model, model_year, component, ldate,
+    is_crash, is_fire, injured_count, deaths_count, miles, narrative)
 """
 
 RECALLS = """
 select * from (values
     ('16V001000', 'FORD', 'F-150', 2015, 'AIR BAGS', date '2016-05-20', 'air bag may not deploy')
-) t(campaign_id, make, model, model_year, component, recall_date, defect_summary)
+) t(camp_no, make, model, model_year, component, recall_date, defect_summary)
 """
 
 
@@ -55,6 +56,9 @@ def test_only_complaints_received_by_cutoff(rows):
 def test_post_recall_complaints_dropped(rows):
     assert rows[("AIR BAGS", "2016-06-01")].cmpl_1m == 0
     assert rows[("AIR BAGS", "2016-06-01")].cmpl_12m == 3
+    assert rows[("AIR BAGS", "2016-06-01")].months_since_recall == 1
+    assert rows[("AIR BAGS", "2016-05-01")].months_since_recall == 0
+    assert rows[("AIR BAGS", "2016-04-01")].months_since_recall is pd.NA  # no recall yet
 
 
 def test_share_age_miles_label(rows):
@@ -64,6 +68,14 @@ def test_share_age_miles_label(rows):
     assert rows[("AIR BAGS", "2016-01-01")].vehicle_age == 1
     assert rows[("AIR BAGS", "2016-01-01")].label
     assert not rows[("ENGINE", "2016-01-01")].label
+
+
+def test_keyword_counts(rows):
+    # "installed" is not a stall
+    assert rows[("AIR BAGS", "2016-01-01")].kw_stall_3m == 0
+    mar = rows[("AIR BAGS", "2016-03-01")]
+    assert (mar.kw_stall_3m, mar.kw_tow_3m, mar.kw_smoke_3m) == (1, 1, 0)
+    assert rows[("AIR BAGS", "2016-06-01")].kw_stall_3m == 0
 
 
 def test_part_map():

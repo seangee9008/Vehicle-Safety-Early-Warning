@@ -50,3 +50,16 @@ def test_watchlist_columns():
     assert wl.loc[0, "reason_1"] == "complaints up 3.0x vs. the prior 9 months"
     assert wl.loc[0, "reason_2"] == "1 crash in the last 3 months"
     assert set(KEYS) <= set(wl.columns)
+
+
+def test_watchlist_shap_reasons():
+    row = {**CELL, "month": pd.Timestamp("2022-03-01"), "score": 0.9, "baseline": 9,
+           "cmpl_3m": 9.0, "cmpl_12m": 18.0, "fire_3m": 2.0, "crash_3m": 0.0, "kw_stall_3m": 1.0}
+    shap = pd.DataFrame([{**CELL, "month": pd.Timestamp("2022-03-01"), "shap_cmpl_3m": 0.5, "shap_fire_3m": 1.2,
+                          "shap_crash_3m": 0.9, "shap_kw_stall_3m": 0.1, "shap_cmpl_12m": -0.4}])
+    wl = build_watchlist(pd.DataFrame([row]), "stg", shap=shap)
+    # biggest push first; crash_3m is 0 so it says nothing; cmpl_12m pushed the score down
+    assert wl.loc[0, "reason_1"] == "2 fires in the last 3 months"
+    assert wl.loc[0, "reason_2"] == "9 complaints in the last 3 months"
+    assert wl.loc[0, "reason_3"] == "1 complaint mentioning stalling in the last 3 months"
+    assert wl.loc[0, "top_reasons"].count(";") == 2
