@@ -1,0 +1,6 @@
+month,make,model,model_year,component,score,rank,top_reasons
+2018-09-01,FORD,FUSION,2010,AIR BAGS,0.98,1,complaints up 3x in 3 months
+2018-10-01,HYUNDAI,SONATA,2011,ENGINE,0.94,2,complaints up 2.5x in 3 months
+2019-04-01,FORD,F-150,2013,POWER TRAIN,0.91,3,complaints up 2.2x in 3 months
+2019-04-01,JEEP,CHEROKEE,2014,POWER TRAIN:AUTOMATIC TRANSMISSION,0.89,4,complaints up 3.4x in 3 months
+2019-09-01,JEEP,GRAND CHEROKEE,2012,ELECTRICAL SYSTEM,0.86,5,complaints up 2.8x in 3 months
