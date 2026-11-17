@@ -246,6 +246,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per Gemini request otherwise
     try:
         raise SystemExit(run(args.watchlist, args.top, force=args.force, month=args.month))
     except (OSError, ValueError, RuntimeError) as error:

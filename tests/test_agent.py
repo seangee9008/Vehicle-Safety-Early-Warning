@@ -360,12 +360,14 @@ def test_fallback_order_prefers_newer_flash_over_lite():
             for name in (
                 "gemini-3.5-flash", "gemini-3.6-flash-lite", "gemini-3.6-flash",
                 "gemini-3.6-flash-tts", "gemini-3.6-pro", "text-embedding-004",
+                "gemini-omni-flash-preview", "gemini-3-flash-preview",
             )
         ]
     )
 
     assert fallback_models(SimpleNamespace(models=models)) == [
         "gemini-3.6-flash", "gemini-3.6-flash-lite", "gemini-3.5-flash",
+        "gemini-3-flash-preview", "gemini-omni-flash-preview",
     ]
 
 

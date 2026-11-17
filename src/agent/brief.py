@@ -142,14 +142,19 @@ def _generate_with_backoff(
 
 
 def _flash_sort_key(name: str) -> tuple[Any, ...]:
-    version = re.match(r"gemini-([\d.]+)", name)
-    numbers = tuple(int(n) for n in version.group(1).split(".") if n) if version else ()
+    version = re.match(r"gemini-(\d+(?:\.\d+)*)-", name)
+    numbers = tuple(int(n) for n in version.group(1).split(".")) if version else ()
+    numbers = (numbers + (0, 0, 0))[:3] if numbers else ()  # gemini-3 sorts after gemini-3.6
     return (
+        not numbers,  # names without a version number (e.g. gemini-omni-flash) go last
         tuple(-n for n in numbers),
         "-lite" in name,
         "preview" in name or "exp" in name,
         name,
     )
+
+
+_FALLBACK_CACHE: dict[int, list[str]] = {}
 
 
 def fallback_models(client: Any) -> list[str]:
@@ -172,6 +177,14 @@ def fallback_models(client: Any) -> list[str]:
             continue
         names.append(name)
     return sorted(set(names), key=_flash_sort_key)
+
+
+def _cached_fallback_models(client: Any) -> list[str]:
+    """The model list is fetched once per client, not once per brief."""
+    key = id(client)
+    if key not in _FALLBACK_CACHE:
+        _FALLBACK_CACHE[key] = fallback_models(client)
+    return _FALLBACK_CACHE[key]
 
 
 def _plain_date(value: Any) -> str:
@@ -220,7 +233,7 @@ def create_brief(
             except ModelUnavailableError as error:
                 print(f"  {error.model} returned HTTP {error.status}; trying next model")
                 if not fallbacks_loaded:
-                    candidates.extend(fallback_models(client))
+                    candidates.extend(_cached_fallback_models(client))
                     fallbacks_loaded = True
                 continue
             return text, {**validation, "model_used": model_id}
