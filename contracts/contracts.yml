@@ -1,0 +1,81 @@
+# Hand-off contracts between teammates. Read by src/contracts.py and src/sources.py.
+# Column names are the producers' real names (Angelina's stg tables, Justine's main tables).
+# Rules: renaming or removing a listed column needs the whole team's OK; adding columns is fine.
+# `columns` are required (every consumer reads them). Types are DuckDB type families:
+# text, integer, number, date, boolean. Extra columns in a table are allowed.
+
+complaints:
+  owner: Angelina
+  table: stg.complaints
+  built_by: python scripts/nhtsa_data_table_cleaning.py
+  grain: one row per complaint (odi_no) per component
+  placeholder: SQL view over raw.complaints (src/sources.py)
+  consumers: [recall_model, agent]
+  columns:
+    cmpl_id: text            # NHTSA CMPLID, one row
+    odi_no: text             # NHTSA ODINO, the complaint number the agent cites
+    make: text               # standardized make
+    model: text              # standardized model (punctuation and spaces removed, e.g. F150)
+    model_year: integer
+    component: text          # standardized top-level part (e.g. ENGINE AND ENGINE COOLING)
+    ldate: date              # date NHTSA received the complaint
+    is_crash: integer        # 1/0
+    is_fire: integer         # 1/0
+    injured_count: integer
+    deaths_count: integer
+    miles: number
+    narrative: text          # complaint text (CDESCR)
+
+recalls:
+  owner: Angelina
+  table: stg.recalls
+  built_by: python scripts/nhtsa_data_table_cleaning.py
+  grain: one row per recall campaign per vehicle per component
+  placeholder: SQL view over raw.recalls (src/sources.py)
+  consumers: [recall_model, agent]
+  columns:
+    camp_no: text            # NHTSA campaign number
+    make: text
+    model: text
+    model_year: integer
+    component: text
+    recall_date: date        # RCDATE
+    defect_summary: text
+    consequence_summary: text  # agent: similar-recall search
+
+monthly_features:
+  owner: Justine
+  table: main.monthly_features
+  built_by: python -m src.recall_model.features --source stg
+  grain: one row per make + model + model_year + component per month
+  placeholder: SQL view over raw.complaints with the contract counts; label is NULL
+  consumers: [recall_model, demo]
+  columns:
+    make: text
+    model: text
+    model_year: integer
+    component: text
+    month: date              # first day of the month; uses complaints received by month end
+    cmpl_1m: number
+    cmpl_3m: number
+    cmpl_6m: number
+    severe_3m: number
+    vehicle_age: integer
+    label: boolean           # recalled within 6 months after month end
+
+watchlist:
+  owner: Justine
+  table: main.watchlist
+  built_by: python -m src.recall_model.watchlist --source stg
+  grain: top 20 make + model + model_year + component per month
+  placeholder: src/agent/fixtures/watchlist_sample.csv
+  consumers: [agent, demo]
+  columns:
+    month: date              # row uses complaints received by the END of this month
+    make: text
+    model: text
+    model_year: integer
+    component: text
+    score: number
+    rank: integer
+    top_reasons: text
