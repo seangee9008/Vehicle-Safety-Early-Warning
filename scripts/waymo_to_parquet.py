@@ -3,6 +3,7 @@
 Usage:
     python scripts/waymo_to_parquet.py                    # every shard in data/raw/waymo/
     python scripts/waymo_to_parquet.py --limit 50         # first 50 scenarios per shard (quick test)
+    python scripts/waymo_to_parquet.py --split training   # only shards under data/raw/waymo/training/
 
 Output (data/processed/waymo/):
     {split}_{shard}_tracks.parquet   one row per agent per timestep (x, y, heading, velocity, type, ...)
@@ -42,8 +43,13 @@ def convert(shard: Path, limit: int | None) -> None:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--limit", type=int, help="max scenarios per shard")
+    p.add_argument("--split", help="only convert shards in this split folder, e.g. training")
     args = p.parse_args()
-    shards = sorted(f for f in RAW.rglob("*tfrecord*") if f.is_file())
+    shards = sorted(
+        f for f in RAW.rglob("*tfrecord*")
+        if f.is_file() and not f.name.endswith(".gstmp")
+        and (args.split is None or f.parent.name == args.split)
+    )
     if not shards:
         sys.exit(f"No shards found in {RAW}. Run scripts/download_waymo.sh first.")
     OUT.mkdir(parents=True, exist_ok=True)
