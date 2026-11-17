@@ -2,116 +2,89 @@ import csv
 from pathlib import Path
 from types import SimpleNamespace
 
-import duckdb
 import pytest
 
+from src import sources
 from src.agent import data_access
 from src.agent.brief import create_brief
 from src.agent.run import WATCHLIST_COLUMNS
 from src.agent.validate import extract_citations, validate_brief
+from tests.nhtsa_fixtures import make_db, raw_complaint, raw_recall, stg_complaint
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_get_complaints_excludes_watchlist_month_and_later(tmp_path, monkeypatch):
-    database = tmp_path / "nhtsa.duckdb"
-    connection = duckdb.connect(str(database))
-    connection.execute("CREATE SCHEMA raw")
-    connection.execute(
-        """
-        CREATE TABLE raw.complaints (
-            CMPLID VARCHAR, ODINO VARCHAR, MAKETXT VARCHAR, MODELTXT VARCHAR,
-            YEARTXT VARCHAR, COMPDESC VARCHAR, LDATE VARCHAR, CDESCR VARCHAR,
-            CRASH VARCHAR, FIRE VARCHAR, INJURED VARCHAR, DEATHS VARCHAR
-        )
-        """
-    )
-    connection.executemany(
-        "INSERT INTO raw.complaints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            ("1", "12345678", "Ford", "Fusion", "2010", "Air Bags", "20180831",
-             "Airbag warning light.", "Y", "N", "1", "0"),
-            ("2", "23456789", "Ford", "Fusion", "2010", "Air Bags", "20180901",
-             "Post-month complaint.", "N", "Y", "0", "0"),
-            ("3", "34567890", "Ford", "Fusion", "2010", "Air Bags", "20180902",
-             "Later complaint.", "N", "N", "0", "0"),
-        ],
-    )
-    connection.close()
-    monkeypatch.setattr(data_access, "DB_PATH", database)
-    monkeypatch.setenv("AGENT_SOURCE", "raw")
+@pytest.fixture
+def use_db(monkeypatch):
+    def _use(path):
+        monkeypatch.setattr(sources, "DB_PATH", path)
+        data_access._source_sql.cache_clear()
+        return path
 
+    yield _use
+    data_access._source_sql.cache_clear()
+
+
+def test_get_complaints_placeholder_excludes_cutoff_and_later(tmp_path, use_db):
+    use_db(make_db(tmp_path / "nhtsa.duckdb", complaints=[
+        raw_complaint("12345678", "20180831", crash="Y", injured="1"),
+        raw_complaint("23456789", "20180901"),
+        raw_complaint("34567890", "20180902"),
+        raw_complaint("45678901", "20180815", cmpl_type="RC"),  # dropped like stg does
+    ]))
+
+    rows = data_access.get_complaints("ford", "fusion", 2010, "AIR BAGS", "2018-09-01")
+
+    assert [row["odi_no"] for row in rows] == ["12345678"]
+    assert rows[0]["ldate"] == "2018-08-31"
+    assert rows[0]["is_crash"] == 1
+    assert rows[0]["component"] == "AIR BAGS"
+    assert tuple(rows[0]) == data_access.COMPLAINT_COLUMNS
+
+
+def test_get_complaints_reads_real_stg_table_with_normalized_model(tmp_path, use_db):
+    use_db(make_db(tmp_path / "nhtsa.duckdb", stg_complaints=[
+        stg_complaint("11111111", "2019-03-30", crash=1),
+        stg_complaint("22222222", "2019-04-01"),
+        stg_complaint("33333333", "2019-03-01", comp="ENGINE AND ENGINE COOLING"),
+    ], stg_recalls=[]))
+
+    # The sample watchlist spells it F-150 and keeps the subcomponent; stg has F150 / POWER TRAIN.
     rows = data_access.get_complaints(
-        "ford", "fusion", 2010, "AIR BAGS", "2018-09-01"
+        "FORD", "F-150", 2013, "POWER TRAIN:AUTOMATIC TRANSMISSION", "2019-04-01"
     )
 
-    assert [row["odino"] for row in rows] == ["12345678"]
-    assert rows[0]["received_date"] == "2018-08-31"
-    assert rows[0]["crash"] is True
-    assert tuple(rows[0]) == data_access.CONTRACT_1_COLUMNS
+    assert sources.get_complaints().is_real
+    assert [row["odi_no"] for row in rows] == ["11111111"]
+    assert tuple(rows[0]) == data_access.COMPLAINT_COLUMNS
+    assert data_access.severity_counts(rows)["crashes"] == 1
 
 
-def test_stg_source_reads_contract_1_columns(tmp_path, monkeypatch):
-    database = tmp_path / "nhtsa.duckdb"
-    connection = duckdb.connect(str(database))
-    connection.execute(
-        """
-        CREATE TABLE main.stg_complaints (
-            complaint_id VARCHAR, odino VARCHAR, make VARCHAR, model VARCHAR,
-            model_year INTEGER, component VARCHAR, received_date DATE, description VARCHAR,
-            crash BOOLEAN, fire BOOLEAN, injuries INTEGER, deaths INTEGER
-        )
-        """
-    )
-    connection.execute(
-        """
-        INSERT INTO main.stg_complaints VALUES
-        ('1', '12345678', 'FORD', 'FUSION', 2010, 'AIR BAGS', DATE '2018-08-31',
-         'Airbag concern.', TRUE, FALSE, 1, 0)
-        """
-    )
-    connection.close()
-    monkeypatch.setattr(data_access, "DB_PATH", database)
-    monkeypatch.setenv("AGENT_SOURCE", "stg")
+def test_component_prefix_matches_standardized_name(tmp_path, use_db):
+    use_db(make_db(tmp_path / "nhtsa.duckdb", stg_complaints=[
+        stg_complaint("1", "2018-09-01", model="SONATA", model_raw="SONATA", year=2011,
+                      make="HYUNDAI", comp="ENGINE AND ENGINE COOLING", comp_raw="ENGINE"),
+    ], stg_recalls=[]))
 
-    rows = data_access.get_complaints(
-        "FORD", "FUSION", 2010, "AIR BAGS", "2018-09-01"
-    )
+    rows = data_access.get_complaints("HYUNDAI", "SONATA", 2011, "ENGINE", "2018-10-01")
 
-    assert [row["odino"] for row in rows] == ["12345678"]
-    assert tuple(rows[0]) == data_access.CONTRACT_1_COLUMNS
+    assert [row["odi_no"] for row in rows] == ["1"]
 
 
-def test_similar_recalls_are_strictly_before_cutoff(tmp_path, monkeypatch):
-    database = tmp_path / "nhtsa.duckdb"
-    connection = duckdb.connect(str(database))
-    connection.execute("CREATE SCHEMA raw")
-    connection.execute(
-        """
-        CREATE TABLE raw.recalls (
-            CAMPNO VARCHAR, MAKETXT VARCHAR, MODELTXT VARCHAR, YEARTXT VARCHAR,
-            COMPNAME VARCHAR, RCDATE VARCHAR, DESC_DEFECT VARCHAR,
-            CONSEQUENCE_DEFECT VARCHAR
-        )
-        """
-    )
-    connection.executemany(
-        "INSERT INTO raw.recalls VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            ("18V000001", "FORD", "FUSION", "2010", "AIR BAGS", "20180831",
-             "Inflator defect.", "May not deploy."),
-            ("18V000002", "FORD", "FUSION", "2010", "AIR BAGS", "20180901",
-             "On cutoff date.", "May not deploy."),
-        ],
-    )
-    connection.close()
-    monkeypatch.setattr(data_access, "DB_PATH", database)
+def test_evidence_cutoff_is_end_of_watchlist_month():
+    assert data_access.evidence_cutoff("2024-12-01") == "2025-01-01"
+    assert data_access.evidence_cutoff("2019-04-01") == "2019-05-01"
 
-    recalls = data_access.find_similar_recalls(
-        "AIR BAGS", ["inflator"], "2018-09-01"
-    )
 
-    assert [recall["campaign_id"] for recall in recalls] == ["18V000001"]
+def test_similar_recalls_are_strictly_before_cutoff(tmp_path, use_db):
+    use_db(make_db(tmp_path / "nhtsa.duckdb", recalls=[
+        raw_recall("18V000001", "20180831"),
+        raw_recall("18V000002", "20180901", defect="On cutoff date."),
+    ]))
+
+    recalls = data_access.find_similar_recalls("AIR BAGS", ["inflator"], "2018-09-01")
+
+    assert [recall["camp_no"] for recall in recalls] == ["18V000001"]
 
 
 def test_validator_rejects_fake_id_and_uncited_bullet():
@@ -194,12 +167,12 @@ def test_watchlist_fixture_matches_contract_3_columns():
 
 def test_gemini_function_calling_is_mocked(monkeypatch):
     complaint = {
-        "odino": "12345678",
-        "received_date": "2018-08-31",
-        "crash": True,
-        "fire": False,
-        "injuries": 1,
-        "deaths": 0,
+        "odi_no": "12345678",
+        "ldate": "2018-08-31",
+        "is_crash": 1,
+        "is_fire": 0,
+        "injured_count": 1,
+        "deaths_count": 0,
     }
     requested_scopes = []
 
@@ -212,6 +185,7 @@ def test_gemini_function_calling_is_mocked(monkeypatch):
         return {"crashes": 1, "fires": 0, "injuries": 1, "deaths": 0}
 
     monkeypatch.setattr(data_access, "get_complaints", fake_get_complaints)
+    monkeypatch.setattr(data_access, "eligible_complaints", lambda *a, **k: [complaint])
     monkeypatch.setattr(data_access, "severity_counts", fake_severity_counts)
     function_part = SimpleNamespace(
         function_call=SimpleNamespace(
@@ -277,12 +251,13 @@ Review the complaint details.
     assert "ODINO 12345678" in brief
     assert validation["citations_valid"] == 1
     assert validation["citations_invalid"] == 0
+    # month 2018-09 -> evidence through the end of September
     assert requested_scopes[0][0][:5] == (
         "FORD",
         "FUSION",
         2010,
         "AIR BAGS",
-        "2018-09-01",
+        "2018-10-01",
     )
 
 
@@ -340,6 +315,7 @@ def test_falls_back_to_next_flash_model_on_429_or_503(monkeypatch, code):
     monkeypatch.setattr(agent_brief.time, "sleep", lambda _: None)
     monkeypatch.delenv("GEMINI_FALLBACK_MODELS", raising=False)
     monkeypatch.setattr(data_access, "get_complaints", lambda *a, **k: [])
+    monkeypatch.setattr(data_access, "eligible_complaints", lambda *a, **k: [])
     monkeypatch.setattr(data_access, "severity_counts", lambda rows: {})
     text = "## Evidence\nnone\n"
     calls = []
@@ -410,11 +386,10 @@ def test_run_skips_existing_brief_unless_forced(tmp_path, monkeypatch):
     from src.agent import run as agent_run
 
     monkeypatch.setattr(agent_run, "BRIEFS_DIR", tmp_path)
-    monkeypatch.setattr(agent_run, "VALIDATION_PATH", tmp_path / "validation.csv")
     monkeypatch.setattr(
         agent_run.data_access,
-        "get_complaints",
-        lambda *a, **k: [{"odino": "11111111", "received_date": "2018-08-31"}],
+        "eligible_complaints",
+        lambda *a, **k: [{"odi_no": "11111111", "ldate": "2018-08-31"}],
     )
     brief = "## Evidence\n- a [ODINO 11111111]\n- b [ODINO 11111111]\n- c [ODINO 11111111]\n"
     generated = []

@@ -70,10 +70,11 @@ def validate_brief(
         raise ValueError(f"Invalid watchlist date: {before_date!r}")
 
     eligible_ids = {
-        str(row.get("odino") or row.get("ODINO"))
+        str(odino)
         for row in complaints
-        if row.get("odino") or row.get("ODINO")
-        if (received := _as_date(row.get("received_date") or row.get("LDATE"))) is not None
+        if (odino := row.get("odi_no") or row.get("odino") or row.get("ODINO"))
+        if (received := _as_date(row.get("ldate") or row.get("received_date") or row.get("LDATE")))
+        is not None
         and received < cutoff
     }
     citations = extract_citations(brief)

@@ -1,26 +1,30 @@
 # Track A: investigation agent
 
-The v0 agent creates cited investigation briefs from the sample Contract 3 watchlist:
+The agent writes cited investigation briefs for watchlist rows:
 
 ```bash
+python -m src.agent.run --top 10                      # main.watchlist (latest month) if built, else the sample CSV
+python -m src.agent.run --month 2024-11-01 --top 10   # a specific watchlist month
 python -m src.agent.run --watchlist src/agent/fixtures/watchlist_sample.csv --top 5
 ```
 
-Contract 1 complaints expose `complaint_id`, `odino`, `make`, `model`, `model_year`,
-`component`, `received_date`, `description`, `crash`, `fire`, `injuries`, and `deaths`.
-The raw SQL path normalizes those fields and filters `received_date` strictly before
-the watchlist month. Common direct identifiers in free-text descriptions (email,
-phone, VIN, URL, and street address patterns) are redacted before the text is sent
-to Gemini. Set `AGENT_SOURCE=stg` to read the same columns from
-`main.stg_complaints` instead of `raw.complaints`.
+Data comes through `src/sources.py`: Angelina's `stg.complaints` / `stg.recalls` and Justine's
+`main.watchlist` when they exist and pass their contracts ([CONTRACTS.md](../../CONTRACTS.md)),
+otherwise placeholder views over the raw tables and the sample CSV. Column names follow the
+contracts (`odi_no`, `ldate`, `narrative`, `is_crash`, `is_fire`, `injured_count`, ...).
 
-The sample Contract 3 CSV has `month`, `make`, `model`, `model_year`, `component`,
-`score`, `rank`, and `top_reasons`. Scores and reasons in the fixture are illustrative;
-the agent is instructed not to treat them as complaint evidence.
+A watchlist row for month M uses complaints received by the end of M, so the agent's evidence
+cutoff is the first day of the next month. Models are matched after the stg normalization
+(`F-150` = `F150`), and a component matches exactly, by its top-level part, or as a prefix.
+Citations are valid when the ODINO is a complaint for that car + part received before the
+cutoff. Common direct identifiers in complaint text (email, phone, VIN, URL, street address)
+are redacted before the text is sent to Gemini.
+
+Briefs for the sample CSV go to `reports/briefs/`; briefs for Justine's watchlist go to
+`reports/briefs/watchlist_<YYYY-MM>/`. Both are git-ignored.
 
 Set `GEMINI_API_KEY` in the local `.env`; `GEMINI_MODEL` defaults to
-`gemini-3.6-flash`. Briefs and citation checks are written under the git-ignored
-`reports/briefs/` directory.
+`gemini-3.6-flash`.
 
 To list models available to your local API key, run
 `python -m src.agent.models`. Choose a Flash model returned by that command and

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import re
 import sys
 from pathlib import Path
@@ -13,8 +14,9 @@ from typing import Any
 from dotenv import load_dotenv
 from google.genai.errors import APIError
 
+from src import sources
 from src.agent import data_access
-from src.agent.brief import COMPLAINT_LIMIT, create_brief
+from src.agent.brief import create_brief
 from src.agent.data_access import ROOT
 from src.agent.validate import validate_brief
 
@@ -45,10 +47,46 @@ VALIDATION_COLUMNS = (
     "uncited_bullets",
 )
 BRIEFS_DIR = ROOT / "reports" / "briefs"
-VALIDATION_PATH = BRIEFS_DIR / "validation.csv"
 UNKNOWN_MODEL = "unknown"
 
 load_dotenv(ROOT / ".env")
+
+
+def _watchlist_from_source(
+    month: str | None,
+) -> tuple[list[dict[str, str]], str, Path]:
+    """Rows from Justine's main.watchlist (one month) or, if not built, the sample CSV.
+
+    Returns (rows sorted by month and rank, description, output directory).
+    """
+    source = sources.get_watchlist()
+    columns = ", ".join(WATCHLIST_COLUMNS)
+    with sources.connect() as con:
+        if source.is_real:
+            month_sql = "(SELECT max(month) FROM wl)" if month in (None, "latest") else "CAST(? AS DATE)"
+            params = [] if month in (None, "latest") else [month]
+            rows = con.execute(
+                f"WITH wl AS ({source.sql}) SELECT {columns} FROM wl "
+                f"WHERE month = {month_sql} ORDER BY rank",
+                params,
+            ).fetchall()
+        else:
+            rows = con.execute(
+                f"WITH wl AS ({source.sql}) SELECT {columns} FROM wl ORDER BY month, rank"
+            ).fetchall()
+    items = [
+        {
+            column: value.isoformat() if hasattr(value, "isoformat") else str(value)
+            for column, value in zip(WATCHLIST_COLUMNS, row)
+        }
+        for row in rows
+    ]
+    if source.is_real:
+        chosen = items[0]["month"][:7] if items else str(month)
+        return items, f"{source.relation} ({chosen})", BRIEFS_DIR / f"watchlist_{chosen}"
+    if month not in (None, "latest"):
+        items = [item for item in items if item["month"][:10] == str(month)[:10]]
+    return items, source.relation, BRIEFS_DIR
 
 
 def _read_watchlist(path: Path, top: int) -> list[dict[str, str]]:
@@ -66,11 +104,11 @@ def _slug(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower()).strip("_")
 
 
-def _brief_path(item: dict[str, str]) -> Path:
+def _brief_path(item: dict[str, str], out_dir: Path) -> Path:
     filename = "_".join(
         _slug(item[field]) for field in ("make", "model", "model_year", "component")
     )
-    return BRIEFS_DIR / f"{filename}.md"
+    return out_dir / f"{filename}.md"
 
 
 def _display(path: Path) -> str:
@@ -81,11 +119,11 @@ def _meta_path(brief_path: Path) -> Path:
     return brief_path.with_suffix(".meta.json")
 
 
-def _previous_models() -> dict[tuple[str, ...], str]:
+def _previous_models(validation_path: Path) -> dict[tuple[str, ...], str]:
     """model_used from an earlier validation.csv, for briefs written before metadata files."""
-    if not VALIDATION_PATH.exists():
+    if not validation_path.exists():
         return {}
-    with VALIDATION_PATH.open(newline="", encoding="utf-8") as file:
+    with validation_path.open(newline="", encoding="utf-8") as file:
         return {
             tuple(row.get(field, "") for field in ("make", "model", "model_year", "component")):
             row.get("model_used") or UNKNOWN_MODEL
@@ -102,30 +140,39 @@ def _cached_model(path: Path, item: dict[str, str], previous: dict[tuple[str, ..
 
 
 def _validate_cached(path: Path, item: dict[str, str]) -> dict[str, Any]:
-    complaints = data_access.get_complaints(
-        item["make"],
-        item["model"],
-        int(item["model_year"]),
-        item["component"],
-        item["month"],
-        limit=COMPLAINT_LIMIT,
+    cutoff = data_access.evidence_cutoff(item["month"])
+    eligible = data_access.eligible_complaints(
+        item["make"], item["model"], int(item["model_year"]), item["component"], cutoff
     )
-    return validate_brief(path.read_text(encoding="utf-8"), complaints, item["month"])
+    return validate_brief(path.read_text(encoding="utf-8"), eligible, cutoff)
 
 
-def run(watchlist_path: Path, top: int, *, force: bool = False) -> int:
+def run(
+    watchlist_path: Path | None,
+    top: int,
+    *,
+    force: bool = False,
+    month: str | None = None,
+) -> int:
+    """Write and validate briefs. With no watchlist_path, read the watchlist via src.sources."""
     if top < 1:
         raise ValueError("--top must be a positive integer")
-    items = _read_watchlist(watchlist_path, top)
+    if watchlist_path is None:
+        items, described, out_dir = _watchlist_from_source(month)
+        items = items[:top]
+    else:
+        items, described, out_dir = _read_watchlist(watchlist_path, top), str(watchlist_path), BRIEFS_DIR
     if not items:
-        raise ValueError(f"No watchlist rows found in {watchlist_path}")
-    BRIEFS_DIR.mkdir(parents=True, exist_ok=True)
-    previous_models = _previous_models()
+        raise ValueError(f"No watchlist rows found in {described}")
+    print(f"Watchlist: {described}, {len(items)} row(s) -> {_display(out_dir)}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    validation_path = out_dir / "validation.csv"
+    previous_models = _previous_models(validation_path)
     validation_rows: list[dict[str, Any]] = []
     failures: list[str] = []
     for item in items:
         label = f"{item['make']} {item['model']} {item['model_year']} {item['component']}"
-        path = _brief_path(item)
+        path = _brief_path(item, out_dir)
         try:
             if path.exists() and not force:
                 validation = {
@@ -168,11 +215,11 @@ def run(watchlist_path: Path, top: int, *, force: bool = False) -> int:
             print(f"ERROR {label}: {error}", file=sys.stderr)
 
     if validation_rows:
-        with VALIDATION_PATH.open("w", newline="", encoding="utf-8") as file:
+        with validation_path.open("w", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=VALIDATION_COLUMNS)
             writer.writeheader()
             writer.writerows(validation_rows)
-        print(f"Validation results: {_display(VALIDATION_PATH)}")
+        print(f"Validation results: {_display(validation_path)}")
     if failures:
         raise RuntimeError(f"{len(failures)} brief(s) failed:\n" + "\n".join(failures))
     return 0
@@ -183,7 +230,13 @@ def main() -> None:
     parser.add_argument(
         "--watchlist",
         type=Path,
-        default=Path("src/agent/fixtures/watchlist_sample.csv"),
+        default=None,
+        help="Contract watchlist CSV. Default: main.watchlist if built, else the sample CSV.",
+    )
+    parser.add_argument(
+        "--month",
+        default=None,
+        help="Watchlist month (YYYY-MM-01) or 'latest'. Real watchlist default: latest.",
     )
     parser.add_argument("--top", type=int, default=5)
     parser.add_argument(
@@ -192,8 +245,9 @@ def main() -> None:
         help="Regenerate briefs that already exist (default: reuse and revalidate them).",
     )
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     try:
-        raise SystemExit(run(args.watchlist, args.top, force=args.force))
+        raise SystemExit(run(args.watchlist, args.top, force=args.force, month=args.month))
     except (OSError, ValueError, RuntimeError) as error:
         parser.exit(1, f"error: {error}\n")
 

@@ -29,8 +29,8 @@ load_dotenv(ROOT / ".env")
 
 SYSTEM_INSTRUCTION = """You write concise vehicle-safety investigation briefs using only the supplied
 complaint evidence and results from the available tools. Do not infer facts not supported by the
-complaints. The watchlist month is the hard evidence cutoff: do not use or mention any item dated
-on or after that month. Do not claim that a trend, rate, or comparison is measured unless the
+complaints. The evidence cutoff date in the prompt is a hard limit: do not use or mention any item
+dated on or after it. Do not claim that a trend, rate, or comparison is measured unless the
 complaint records provided establish it.
 
 Return Markdown with exactly these sections:
@@ -239,14 +239,16 @@ def _create_brief_with_client(
     model = str(_row_value(item, "model"))
     model_year = int(_row_value(item, "model_year"))
     component = str(_row_value(item, "component"))
-    cutoff = _plain_date(_row_value(item, "month"))
+    month = _plain_date(_row_value(item, "month"))
+    # A watchlist row for month M uses complaints received by the end of M (contracts.yml).
+    cutoff = data_access.evidence_cutoff(month)
 
     complaints = data_access.get_complaints(
         make, model, model_year, component, cutoff, limit=COMPLAINT_LIMIT
     )
     severity = data_access.severity_counts(complaints)
     prompt_item = {
-        "month": cutoff,
+        "month": month,
         "make": make,
         "model": model,
         "model_year": model_year,
@@ -255,7 +257,7 @@ def _create_brief_with_client(
     prompt = f"""Prepare a brief for this watchlist row:
 {json.dumps(prompt_item, sort_keys=True)}
 
-Watchlist month (exclusive evidence cutoff): {cutoff}
+Watchlist month: {month}. Evidence cutoff (exclusive, end of that month): {cutoff}
 Severity counts computed from the complaint rows by the application:
 {json.dumps(severity, sort_keys=True)}
 
@@ -325,5 +327,6 @@ returned by get_complaints. If no matching complaint rows are returned, state th
             tool_calls += 1
         contents.append(types.Content(role="user", parts=tool_responses))
 
-    validation = validate_brief(text, complaints, cutoff)
+    eligible = data_access.eligible_complaints(make, model, model_year, component, cutoff)
+    validation = validate_brief(text, eligible, cutoff)
     return text.rstrip() + "\n", validation
