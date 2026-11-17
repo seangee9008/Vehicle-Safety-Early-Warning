@@ -28,16 +28,19 @@ from src.trajectory.dataset import (
     PAST_STEPS,
     TEST_NPZ,
     TEST_TRACKS,
+    WAYMO_DIR,
     load,
     to_world_frame,
 )
-from src.trajectory.model import CHECKPOINT, load_checkpoint, predict
+from src.trajectory.model import load_checkpoint, predict
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CSV = ROOT / "reports" / "waymo_model_vs_baseline.csv"
 DEFAULT_FIGURE = ROOT / "reports" / "figures" / "waymo_model_examples.png"
 HORIZONS_S = (3, 5, 8)
 MIN_TRAVEL_M = 1.0
+# Chosen by src.trajectory.compare on held-out training scenarios (not on the test set).
+SELECTED_CHECKPOINT = WAYMO_DIR / "mlp_k6_v2_moving.pt"
 
 
 def horizon_errors(paths: np.ndarray, future: np.ndarray, valid: np.ndarray, horizon_s: int):
@@ -207,7 +210,7 @@ def plot_examples(test: dict, paths: np.ndarray, conf: np.ndarray, out_path: Pat
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--test", type=Path, default=TEST_NPZ)
-    parser.add_argument("--checkpoint", type=Path, default=CHECKPOINT)
+    parser.add_argument("--checkpoint", type=Path, default=SELECTED_CHECKPOINT)
     parser.add_argument("--out", type=Path, default=DEFAULT_CSV)
     parser.add_argument("--figure", type=Path, default=DEFAULT_FIGURE)
     parser.add_argument("--no-plot", action="store_true")
@@ -215,8 +218,9 @@ def main() -> None:
 
     test = load(args.test)
     assert test["past"].shape[1] == PAST_STEPS
-    model, _ = load_checkpoint(args.checkpoint)
-    paths, conf = predict(model, test)
+    model, info = load_checkpoint(args.checkpoint)
+    paths, conf = predict(model, test, temperature=info.get("temperature", 1.0))
+    print(f"Checkpoint {args.checkpoint.name}: {info}")
     paths = paths.astype(np.float64)
     summary = summarize(per_agent_table(test, paths, conf))
     print(format_table(summary))

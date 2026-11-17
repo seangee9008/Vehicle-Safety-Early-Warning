@@ -13,9 +13,14 @@ Arrays in each ``.npz``:
 - ``origin``        (N, 2) float64 world position at step 0; ``yaw`` (N,) world heading at step 0
 - ``scenario_id``   (N,) str; ``track_id`` (N,) int64
 
-Training examples come only from ``training_*`` shards; ``validation_00000`` is test only.
+- ``is_target``     (N,) bool: True for ``to_predict`` agents
 
-    python -m src.trajectory.dataset        # writes data/processed/waymo/{train,validation}_examples.npz
+With ``targets_only=False`` (v2 training data), non-target agents are added too, but only those
+valid now with all 80 future steps valid. Training examples come only from ``training_*`` shards;
+``validation_00000`` is test only and always uses prediction targets only.
+
+    python -m src.trajectory.dataset        # writes train_examples.npz, train_examples_all.npz and
+                                            # validation_00000_examples.npz in data/processed/waymo/
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 WAYMO_DIR = ROOT / "data" / "processed" / "waymo"
 TRAIN_NPZ = WAYMO_DIR / "train_examples.npz"
+TRAIN_ALL_NPZ = WAYMO_DIR / "train_examples_all.npz"
 TEST_NPZ = WAYMO_DIR / "validation_00000_examples.npz"
 TEST_TRACKS = WAYMO_DIR / "validation_00000_tracks.parquet"
 
@@ -66,12 +72,13 @@ def to_world_frame(xy: np.ndarray, origin: np.ndarray, yaw: np.ndarray) -> np.nd
     return rotate(xy, yaw_b) + origin_b
 
 
-def build_examples(tracks: pd.DataFrame) -> dict[str, np.ndarray]:
+def build_examples(tracks: pd.DataFrame, targets_only: bool = True) -> dict[str, np.ndarray]:
     """Turn a tracks frame (columns in ``COLUMNS``) into agent-frame arrays."""
-    t = tracks[tracks["to_predict"].astype(bool)]
+    t = tracks if not targets_only else tracks[tracks["to_predict"].astype(bool)]
     t = t[t["steps_from_current"].between(-(PAST_STEPS - 1), FUTURE_STEPS)]
     current = t[(t["steps_from_current"] == 0) & t["valid"].astype(bool)]
-    keys = current[[*KEY, "object_type"]].drop_duplicates(KEY).sort_values(KEY, ignore_index=True)
+    keys = current[[*KEY, "object_type", "to_predict"]].drop_duplicates(KEY).sort_values(
+        KEY, ignore_index=True)
     keys["idx"] = np.arange(len(keys))
     rows = t.merge(keys[[*KEY, "idx"]], on=KEY)
 
@@ -108,8 +115,11 @@ def build_examples(tracks: pd.DataFrame) -> dict[str, np.ndarray]:
         "yaw": yaw,
         "scenario_id": keys["scenario_id"].to_numpy(str),
         "track_id": keys["track_id"].to_numpy(np.int64),
+        "is_target": keys["to_predict"].astype(bool).to_numpy(),
     }
-    keep = examples["future_valid"].any(axis=1)
+    # Targets: at least one valid future step (as the baseline). Others: the full 8 s.
+    keep = np.where(examples["is_target"], examples["future_valid"].any(axis=1),
+                    examples["future_valid"].all(axis=1))
     return {name: arr[keep] for name, arr in examples.items()}
 
 
@@ -117,8 +127,9 @@ def concat_examples(parts: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]
     return {name: np.concatenate([p[name] for p in parts]) for name in parts[0]}
 
 
-def load_tracks(path: Path) -> pd.DataFrame:
-    return pd.read_parquet(path, columns=COLUMNS, filters=[("to_predict", "==", True)])
+def load_tracks(path: Path, targets_only: bool = True) -> pd.DataFrame:
+    filters = [("to_predict", "==", True)] if targets_only else None
+    return pd.read_parquet(path, columns=COLUMNS, filters=filters)
 
 
 def training_track_files(waymo_dir: Path = WAYMO_DIR) -> list[Path]:
@@ -146,6 +157,7 @@ def describe(examples: dict[str, np.ndarray], label: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--train-out", type=Path, default=TRAIN_NPZ)
+    parser.add_argument("--train-all-out", type=Path, default=TRAIN_ALL_NPZ)
     parser.add_argument("--test-out", type=Path, default=TEST_NPZ)
     args = parser.parse_args()
 
@@ -153,15 +165,21 @@ def main() -> None:
     if not files:
         raise SystemExit(f"No training_*_tracks.parquet in {WAYMO_DIR}. Run waymo_to_parquet.py.")
     train = concat_examples([build_examples(load_tracks(f)) for f in files])
+    train_all = concat_examples(
+        [build_examples(load_tracks(f, targets_only=False), targets_only=False) for f in files])
     test = build_examples(load_tracks(TEST_TRACKS))
-    overlap = set(train["scenario_id"]) & set(test["scenario_id"])
-    if overlap:
-        raise SystemExit(f"{len(overlap)} validation scenarios found in training data")
+    for name, data in (("train", train), ("train_all", train_all)):
+        overlap = set(data["scenario_id"]) & set(test["scenario_id"])
+        if overlap:
+            raise SystemExit(f"{len(overlap)} validation scenarios found in {name}")
     save(train, args.train_out)
+    save(train_all, args.train_all_out)
     save(test, args.test_out)
-    print(describe(train, f"train ({', '.join(f.name for f in files)})"))
-    print(describe(test, "test (validation_00000)"))
-    print(f"Wrote {args.train_out} and {args.test_out}")
+    label = ", ".join(f.name for f in files)
+    print(describe(train, f"train, targets ({label})"))
+    print(describe(train_all, f"train_all, targets + full-future non-targets ({label})"))
+    print(describe(test, "test (validation_00000, targets only)"))
+    print(f"Wrote {args.train_out}, {args.train_all_out} and {args.test_out}")
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ Last updated: Nov 17.
 | Agent on the real watchlist | Sean | Not started | | Nov 18 |
 | dbt intermediate models + snapshots | Angelina | Not started | | Nov 19 |
 | `monthly_features` mart + LightGBM + backtest | Justine | Not started | | Nov 19 |
-| Waymo PyTorch model (MLP, K=6, trained on 2 training shards; validation_00000 FDE@8s best guess 18.32 m vs CV 25.85 m (-29%), minFDE 7.40 m (-71%); pedestrian best guess 9% worse than CV) | Sean | In review | sean/waymo-model | Nov 24 |
+| Waymo PyTorch model: v2 kept (MLP K=6, + moving non-target agents, label smoothing 0.1, temperature scaling; chosen on held-out training scenarios). validation_00000 FDE@8s best guess 18.97 m vs CV 25.85 m (-27%), minFDE 7.32 m (-72%). v1 was 18.32 m on test; v1 vs v2 in reports/waymo_v1_vs_v2.csv | Sean | In review | sean/waymo-model | Nov 24 |
 | Final demo | Sean | Not started | | Nov 24 |
 | Data quality tests + publish final tables to BigQuery | Angelina | Not started | | Nov 24 |
 | SHAP + final metrics | Justine | Not started | | Nov 24 |
@@ -38,7 +38,8 @@ Last updated: Nov 17.
 - Free stack only: DuckDB, BigQuery sandbox, Gemini free tier.
 - Track B kept: the Waymo go/no-go passed.
 - Waymo model is evaluated only on validation_00000; training uses only `training_*` shards, with
-  10% of training scenarios held out for early stopping.
+  10% of training scenarios held out for early stopping and for choosing between model versions
+  (best-guess FDE@8s on held-out prediction targets). The test set is never used to choose.
 - `stg_complaints` includes `odino`. The agent cites and validates ODINO numbers, and `complaint_id`
   (CMPLID) is a different, per-row ID.
 

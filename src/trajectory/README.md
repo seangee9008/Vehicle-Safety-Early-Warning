@@ -32,3 +32,19 @@ python -m src.trajectory.evaluate                      # reports/waymo_model_vs_
 - `evaluate.py`: same agents and ADE/FDE rules as the baseline. Reports minADE/minFDE over the 6
   paths, the single best guess (highest confidence), and the distance-adjusted FDE@8s
   (FDE / metres actually travelled, agents moving at least 1 m).
+
+## v2 and model selection
+
+```bash
+python -m src.trajectory.model --data data/processed/waymo/train_examples_all.npz \
+    --out data/processed/waymo/mlp_k6_v2_moving.pt \
+    --label-smoothing 0.1 --min-non-target-travel 1.0 --temperature-scaling
+python -m src.trajectory.compare   # reports/waymo_v1_vs_v2.csv (holdout + test rows)
+```
+
+- `train_examples_all.npz` adds non-target agents that are valid now and have all 80 future steps
+  valid. The test set is unchanged (validation_00000 prediction targets only).
+- Early stopping, temperature fitting and model choice all use the prediction targets in the 10%
+  of training scenarios held out from fitting. Rule: lowest best-guess FDE@8s there (ties within 1%
+  broken by minFDE@8s). `evaluate.py` defaults to the chosen checkpoint (`mlp_k6_v2_moving.pt`).
+- Temperature scaling only calibrates confidences; it cannot change which path ranks first.

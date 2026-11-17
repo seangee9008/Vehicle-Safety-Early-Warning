@@ -81,7 +81,8 @@ class TrajectoryMLP(nn.Module):
 
 
 def wta_loss(
-    paths: torch.Tensor, logits: torch.Tensor, future: torch.Tensor, future_valid: torch.Tensor
+    paths: torch.Tensor, logits: torch.Tensor, future: torch.Tensor, future_valid: torch.Tensor,
+    label_smoothing: float = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Winner-takes-all regression (masked ADE of closest candidate) + cross-entropy on the winner.
 
@@ -93,7 +94,7 @@ def wta_loss(
     ade = (dist * mask[:, None]).sum(-1) / mask.sum(-1).clamp(min=1.0)[:, None]
     winner = ade.argmin(dim=1)
     regression = ade.gather(1, winner[:, None]).squeeze(1).mean()
-    classification = nn.functional.cross_entropy(logits, winner)
+    classification = nn.functional.cross_entropy(logits, winner, label_smoothing=label_smoothing)
     return regression, classification
 
 
@@ -116,8 +117,9 @@ def _tensors(data: dict[str, np.ndarray], idx: np.ndarray, device: torch.device)
 
 
 @torch.no_grad()
-def predict(model: TrajectoryMLP, data: dict[str, np.ndarray], batch: int = 4096):
-    """Agent-frame paths (N, K, 80, 2) and softmax confidences (N, K) as numpy."""
+def predict(model: TrajectoryMLP, data: dict[str, np.ndarray], batch: int = 4096,
+            temperature: float = 1.0):
+    """Agent-frame paths (N, K, 80, 2) and softmax(logits / temperature) (N, K) as numpy."""
     model.eval()
     device = next(model.parameters()).device
     x = torch.from_numpy(features(data["past"], data["past_valid"], data["agent_type"]))
@@ -126,7 +128,7 @@ def predict(model: TrajectoryMLP, data: dict[str, np.ndarray], batch: int = 4096
     for start in range(0, len(x), batch):
         p, logit = model(x[start:start + batch].to(device), past[start:start + batch].to(device))
         paths.append(p.cpu().numpy())
-        probs.append(torch.softmax(logit, dim=-1).cpu().numpy())
+        probs.append(torch.softmax(logit / temperature, dim=-1).cpu().numpy())
     return np.concatenate(paths), np.concatenate(probs)
 
 
@@ -138,13 +140,23 @@ def train(
     lr: float = 1e-3,
     patience: int = 25,
     max_minutes: float = 18.0,
+    label_smoothing: float = 0.0,
+    min_non_target_travel_m: float = 0.0,
     device: torch.device | None = None,
     log=print,
 ) -> tuple[TrajectoryMLP, dict]:
+    """Train with early stopping on the held-out scenarios' prediction targets.
+
+    Non-target agents (``is_target`` False, only in v2 data) are used for fitting only, and only
+    if their 8 s end point is at least ``min_non_target_travel_m`` from the start.
+    """
     torch.manual_seed(SEED)
     device = device or pick_device()
     held = scenario_holdout(data["scenario_id"])
-    train_idx, val_idx = np.flatnonzero(~held), np.flatnonzero(held)
+    is_target = data.get("is_target", np.ones(len(held), bool))
+    moved = np.linalg.norm(data["future"][:, -1], axis=1) >= min_non_target_travel_m
+    train_idx = np.flatnonzero(~held & (is_target | moved))
+    val_idx = np.flatnonzero(held & is_target)
     tr = _tensors(data, train_idx, device)
     va = _tensors(data, val_idx, device)
 
@@ -165,7 +177,7 @@ def train(
         for b in range(0, len(order), batch_size):
             sel = order[b:b + batch_size]
             paths, logits = model(tr[0][sel], tr[1][sel])
-            reg, cls = wta_loss(paths, logits, tr[2][sel], tr[3][sel])
+            reg, cls = wta_loss(paths, logits, tr[2][sel], tr[3][sel], label_smoothing)
             loss = reg + cls
             opt.zero_grad()
             loss.backward()
@@ -190,8 +202,35 @@ def train(
     model.load_state_dict(best_state)
     info = {"best_epoch": best_epoch, "epochs_run": epoch + 1, "holdout_loss": best,
             "seconds": time.time() - start, "train_agents": len(train_idx),
-            "holdout_agents": len(val_idx), "device": str(device)}
+            "holdout_agents": len(val_idx), "device": str(device),
+            "label_smoothing": label_smoothing, "min_non_target_travel_m": min_non_target_travel_m,
+            "temperature": 1.0}
     return model, info
+
+
+@torch.no_grad()
+def fit_temperature(model: TrajectoryMLP, data: dict[str, np.ndarray], idx: np.ndarray) -> float:
+    """Temperature minimising cross-entropy on the winning candidate, over ``idx`` examples.
+
+    Scaling logits never changes which path ranks first, so it calibrates confidences without
+    changing best-guess errors.
+    """
+    model.eval()
+    device = next(model.parameters()).device
+    x, past, future, valid = _tensors(data, idx, device)
+    paths, logits = model(x, past)
+    mask = valid.to(paths.dtype)
+    dist = torch.linalg.vector_norm(paths - future[:, None], dim=-1)
+    winner = ((dist * mask[:, None]).sum(-1) / mask.sum(-1).clamp(min=1.0)[:, None]).argmin(1)
+    grid = np.exp(np.linspace(np.log(0.25), np.log(8.0), 61))
+    losses = [nn.functional.cross_entropy(logits / t, winner).item() for t in grid]
+    return float(grid[int(np.argmin(losses))])
+
+
+def holdout_index(data: dict[str, np.ndarray]) -> np.ndarray:
+    """Prediction-target examples in the held-out 10% of training scenarios."""
+    held = scenario_holdout(data["scenario_id"])
+    return np.flatnonzero(held & data.get("is_target", np.ones(len(held), bool)))
 
 
 def save_checkpoint(model: TrajectoryMLP, info: dict, path: Path = CHECKPOINT) -> None:
@@ -211,14 +250,24 @@ def main() -> None:
     parser.add_argument("--data", type=Path, default=TRAIN_NPZ)
     parser.add_argument("--out", type=Path, default=CHECKPOINT)
     parser.add_argument("--max-minutes", type=float, default=18.0)
+    parser.add_argument("--label-smoothing", type=float, default=0.0)
+    parser.add_argument("--min-non-target-travel", type=float, default=0.0,
+                        help="drop non-target training agents whose 8 s end point is closer (m)")
+    parser.add_argument("--temperature-scaling", action="store_true",
+                        help="fit a softmax temperature on the held-out training scenarios")
     args = parser.parse_args()
 
     data = load(args.data)
     assert PAST_STEPS == data["past"].shape[1]
-    model, info = train(data, max_minutes=args.max_minutes)
+    model, info = train(data, max_minutes=args.max_minutes, label_smoothing=args.label_smoothing,
+                        min_non_target_travel_m=args.min_non_target_travel)
+    if args.temperature_scaling:
+        info["temperature"] = fit_temperature(model, data, holdout_index(data))
     save_checkpoint(model, info, args.out)
     print(f"best epoch {info['best_epoch']} of {info['epochs_run']}, "
-          f"{info['seconds'] / 60:.1f} min on {info['device']}. Wrote {args.out}")
+          f"{info['seconds'] / 60:.1f} min on {info['device']}, "
+          f"{info['train_agents']} train agents, temperature {info['temperature']:.2f}. "
+          f"Wrote {args.out}")
 
 
 if __name__ == "__main__":
