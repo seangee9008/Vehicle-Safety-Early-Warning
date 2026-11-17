@@ -96,6 +96,30 @@ _FLASH_MODEL_RE = re.compile(r"^gemini-[\w.]+-flash(?:-lite)?(?:-[\w.]+)?$")
 _EXCLUDED_MODEL_WORDS = ("image", "tts", "live", "audio", "embedding", "thinking", "computer")
 
 
+class RequestBudgetExceeded(RuntimeError):
+    """The run used its Gemini request budget (``set_request_budget``)."""
+
+
+_REQUESTS = {"used": 0, "limit": None}
+# Models whose free-tier daily quota ran out in this process; they are not tried again.
+_EXHAUSTED_TODAY: set[str] = set()
+
+
+def set_request_budget(limit: int | None) -> None:
+    """Cap generate_content calls (retries included) for this process; None = no cap."""
+    _REQUESTS["used"] = 0
+    _REQUESTS["limit"] = limit
+
+
+def requests_used() -> int:
+    return int(_REQUESTS["used"])
+
+
+def _is_daily_quota(error: Exception) -> bool:
+    text = str(error).lower().replace("_", "").replace(" ", "")
+    return _status_code(error) == 429 and "perday" in text
+
+
 class ModelUnavailableError(RuntimeError):
     """A model kept returning 429/503, so the caller should try another model."""
 
@@ -126,6 +150,10 @@ def _generate_with_backoff(
 ) -> Any:
     """Call one model, retrying 429/503 briefly before giving up on that model."""
     for attempt in range(MAX_RETRIES_PER_MODEL + 1):
+        limit = _REQUESTS["limit"]
+        if limit is not None and _REQUESTS["used"] >= limit:
+            raise RequestBudgetExceeded(f"Gemini request budget of {limit} used up")
+        _REQUESTS["used"] += 1
         try:
             return client.models.generate_content(
                 model=model,
@@ -135,6 +163,9 @@ def _generate_with_backoff(
         except APIError as error:
             if not _is_retryable(error):
                 raise
+            if _is_daily_quota(error):  # retrying today cannot help
+                _EXHAUSTED_TODAY.add(model)
+                raise ModelUnavailableError(model, _status_code(error), error) from error
             if attempt == MAX_RETRIES_PER_MODEL:
                 raise ModelUnavailableError(model, _status_code(error), error) from error
             time.sleep(min(2**attempt + random.random(), 30.0))
@@ -225,7 +256,10 @@ def create_brief(
         fallbacks_loaded = False
         while candidates:
             model_id = candidates.pop(0)
-            if model_id in tried:
+            if model_id in tried or model_id in _EXHAUSTED_TODAY:
+                if model_id in _EXHAUSTED_TODAY and not fallbacks_loaded:
+                    candidates.extend(_cached_fallback_models(client))
+                    fallbacks_loaded = True
                 continue
             tried.append(model_id)
             try:

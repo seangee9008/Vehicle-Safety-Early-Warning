@@ -415,3 +415,43 @@ def test_run_skips_existing_brief_unless_forced(tmp_path, monkeypatch):
 
     agent_run.run(watchlist, 1, force=True)
     assert generated == ["FORD", "FORD"]
+
+
+def test_request_budget_stops_calls(monkeypatch):
+    from src.agent import brief as agent_brief
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            return "ok"
+
+    agent_brief.set_request_budget(2)
+    client = SimpleNamespace(models=FakeModels())
+    try:
+        agent_brief._generate_with_backoff(client, model="m", contents=[], config=None)
+        agent_brief._generate_with_backoff(client, model="m", contents=[], config=None)
+        with pytest.raises(agent_brief.RequestBudgetExceeded):
+            agent_brief._generate_with_backoff(client, model="m", contents=[], config=None)
+        assert agent_brief.requests_used() == 2
+    finally:
+        agent_brief.set_request_budget(None)
+
+
+def test_daily_quota_429_skips_retries_and_marks_model(monkeypatch):
+    from google.genai.errors import ClientError
+
+    from src.agent import brief as agent_brief
+
+    calls = []
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs["model"])
+            raise ClientError(429, {"message": "quota GenerateRequestsPerDayPerProjectPerModel-FreeTier"})
+
+    monkeypatch.setattr(agent_brief, "_EXHAUSTED_TODAY", set())
+    with pytest.raises(agent_brief.ModelUnavailableError):
+        agent_brief._generate_with_backoff(
+            SimpleNamespace(models=FakeModels()), model="m", contents=[], config=None
+        )
+    assert calls == ["m"]
+    assert "m" in agent_brief._EXHAUSTED_TODAY
