@@ -1,7 +1,7 @@
 """One entry point for common project tasks. See AGENTS.md (Commands).
 
-    python run.py check | data | dbt | test | lint | waymo | briefs | status
-    python run.py contracts | pipeline | demo | all     (not built yet)
+    python run.py check | data | dbt | test | lint | waymo | briefs | status | contracts
+    python run.py pipeline | demo | all     (not built yet)
 
 Standard library only, so it works on Mac and Windows before anything else is installed.
 """
@@ -17,7 +17,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PY = sys.executable
-SAMPLE_WATCHLIST = Path("src/agent/fixtures/watchlist_sample.csv")
 
 
 def _run(cmd: list[str], cwd: Path = ROOT) -> int:
@@ -96,8 +95,15 @@ def cmd_waymo(_: argparse.Namespace) -> int:
 def cmd_briefs(_: argparse.Namespace) -> int:
     if not (ROOT / "src" / "agent" / "run.py").exists():
         return _not_merged("briefs")
-    # Cache on: existing briefs are revalidated, never regenerated (no --force).
-    return _run([PY, "-m", "src.agent.run", "--watchlist", str(SAMPLE_WATCHLIST), "--top", "5"])
+    # Watchlist via src/sources.py: Justine's main.watchlist (latest month, top 10) when built,
+    # else the sample CSV. Cache on: existing briefs are revalidated, never forced.
+    return _run([PY, "-m", "src.agent.run", "--top", "10"])
+
+
+def cmd_contracts(_: argparse.Namespace) -> int:
+    if not (ROOT / "src" / "contracts.py").exists():
+        return _not_merged("contracts")
+    return _run([PY, "-m", "src.contracts", "--check"])
 
 
 def cmd_status(_: argparse.Namespace) -> int:
@@ -110,6 +116,9 @@ def cmd_status(_: argparse.Namespace) -> int:
         if not line.startswith("|"):
             break
         print(line)
+    if (ROOT / "src" / "sources.py").exists():
+        print("\nTables (real = teammate's table passes its contract; else placeholder):")
+        return _run([PY, "-m", "src.sources"])
     return 0
 
 
@@ -122,7 +131,8 @@ COMMANDS = {
     "waymo": cmd_waymo,
     "briefs": cmd_briefs,
     "status": cmd_status,
-    **{name: (lambda _, n=name: _not_built(n)) for name in ("contracts", "pipeline", "demo", "all")},
+    "contracts": cmd_contracts,
+    **{name: (lambda _, n=name: _not_built(n)) for name in ("pipeline", "demo", "all")},
 }
 
 
