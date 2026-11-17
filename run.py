@@ -17,6 +17,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PY = sys.executable
+BRIEF_REQUEST_CAP = 60
+COMPLAINT_YEARS = ["2010-2014", "2015-2019", "2020-2024", "2025-2026"]
 
 
 def _run(cmd: list[str], cwd: Path = ROOT) -> int:
@@ -63,7 +65,8 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_data(args: argparse.Namespace) -> int:
-    code = _run([PY, "scripts/download_nhtsa.py"])  # skips files already downloaded
+    # Justine's split needs complaints from 2010 on; files already downloaded are skipped.
+    code = _run([PY, "scripts/download_nhtsa.py", "--complaints", *COMPLAINT_YEARS])
     if code:
         return code
     db = ROOT / "data" / "nhtsa.duckdb"
@@ -97,7 +100,8 @@ def cmd_briefs(_: argparse.Namespace) -> int:
         return _not_merged("briefs")
     # Watchlist via src/sources.py: Justine's main.watchlist (latest month, top 10) when built,
     # else the sample CSV. Cache on: existing briefs are revalidated, never forced.
-    return _run([PY, "-m", "src.agent.run", "--top", "10"])
+    # The request cap keeps one run inside the Gemini free tier; unfinished briefs wait.
+    return _run([PY, "-m", "src.agent.run", "--top", "10", "--max-requests", str(BRIEF_REQUEST_CAP)])
 
 
 def cmd_contracts(_: argparse.Namespace) -> int:

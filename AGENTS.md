@@ -16,7 +16,7 @@ PR. Current tasks and who is doing them are in [STATUS.md](STATUS.md).
 
 | Person | Owns |
 | --- | --- |
-| Angelina | Data cleaning: dbt staging models `stg_complaints`, `stg_recalls` (`dbt/models/staging/`) |
+| Angelina | Data cleaning: `stg.complaints`, `stg.recalls` (`scripts/nhtsa_data_cleaning.py`, `scripts/nhtsa_data_table_cleaning.py`, `dbt/models/staging/`) |
 | Justine | Features + recall model: `notebooks/`, `src/recall_model/`, dbt mart `monthly_features` (`dbt/models/marts/`), table `main.watchlist` |
 | Sean | Agent (`src/agent/`), Waymo (`src/trajectory/`), contracts, CI, pipeline, demo (`app/`) |
 
@@ -36,19 +36,21 @@ needed there, say so in your summary instead.
 
 ## Hand-off contracts (exact column names)
 
-All four are tables (or views) in `data/nhtsa.duckdb`, schema `main` (where dbt writes them).
+Details: [CONTRACTS.md](CONTRACTS.md); machine-readable: [contracts/contracts.yml](contracts/contracts.yml).
+We use the producers' real names. All live in `data/nhtsa.duckdb`.
 
-| Table | Columns | Owner |
-| --- | --- | --- |
-| `stg_complaints` | `complaint_id`, `odino`, `make`, `model`, `model_year`, `component`, `received_date`, `is_crash`, `is_fire`, `injured`, `deaths`, `miles`, `narrative` | Angelina |
-| `stg_recalls` | `campaign_id`, `make`, `model`, `model_year`, `component`, `recall_date`, `defect_summary` | Angelina |
-| `monthly_features` | `make`, `model`, `model_year`, `component`, `month`, `cmpl_1m`, `cmpl_3m`, `cmpl_6m`, `severe_3m`, `vehicle_age`, `label` | Justine |
-| `watchlist` | `month`, `make`, `model`, `model_year`, `component`, `score`, `rank`, `top_reasons` | Justine |
+| Contract | Real table | Columns | Owner |
+| --- | --- | --- | --- |
+| complaints | `stg.complaints` | `cmpl_id`, `odi_no`, `make`, `model`, `model_year`, `component`, `ldate`, `is_crash`, `is_fire`, `injured_count`, `deaths_count`, `miles`, `narrative` | Angelina |
+| recalls | `stg.recalls` | `camp_no`, `make`, `model`, `model_year`, `component`, `recall_date`, `defect_summary`, `consequence_summary` | Angelina |
+| monthly_features | `main.monthly_features` | `make`, `model`, `model_year`, `component`, `month`, `cmpl_1m`, `cmpl_3m`, `cmpl_6m`, `severe_3m`, `vehicle_age`, `label` | Justine |
+| watchlist | `main.watchlist` | `month`, `make`, `model`, `model_year`, `component`, `score`, `rank`, `top_reasons` | Justine |
 
-- `complaint_id` is `CMPLID` (one row). `odino` is `ODINO` (the complaint number the agent cites).
+- `odi_no` is NHTSA's ODINO, the complaint number the agent cites. `cmpl_id` (CMPLID) is per row.
+- A `monthly_features` or `watchlist` row for month M uses complaints received by the end of M.
 - **Renaming or removing a contract column needs the whole team's OK. Adding columns is fine.**
-- Tables outside schema `main` (for example `stg.complaints` and `int.monthly_features` from
-  `scripts/nhtsa_data_cleaning.py`) are interim work, not the contract.
+- Read these tables through `src/sources.py`: it uses the real table when it passes its contract,
+  otherwise a placeholder, and says which. `python run.py contracts` checks them.
 
 ## Rules
 
@@ -78,14 +80,15 @@ Run from the repo root with the `.venv` Python. Each command prints what it runs
 | Command | What it does |
 | --- | --- |
 | `python run.py check` | `scripts/check_setup.py`, then `pytest -q`, then `ruff check .` |
-| `python run.py data` | Download NHTSA files (skips files already present), then load DuckDB if it doesn't exist yet (`--reload` to rebuild) |
+| `python run.py data` | Download NHTSA files incl. complaints 2010-2026 (skips files already present), then load DuckDB if it doesn't exist yet (`--reload` to rebuild) |
 | `python run.py dbt` | `dbt build` in `dbt/` (copies `profiles.yml.example` to `profiles.yml` if missing) |
 | `python run.py test` | `pytest -q` |
 | `python run.py lint` | `ruff check .` |
 | `python run.py waymo` | Waymo constant-velocity baseline (`python -m src.trajectory.baseline`) |
-| `python run.py briefs` | Agent briefs for the watchlist, cache on (existing briefs are revalidated, never forced) |
-| `python run.py status` | Print the task table from STATUS.md |
-| `python run.py contracts`, `pipeline`, `demo`, `all` | Not built yet |
+| `python run.py briefs` | Agent briefs for `main.watchlist` (latest month, top 10), or the sample CSV if not built; cache on, never forced, at most 60 Gemini requests per run |
+| `python run.py contracts` | Check the real tables against `contracts/contracts.yml` |
+| `python run.py status` | Print the task table from STATUS.md, then real vs placeholder per table |
+| `python run.py pipeline`, `demo`, `all` | Not built yet |
 
 The agent itself: `python -m src.agent.run --watchlist <csv> --top 5` (add `--force` only to
 regenerate on purpose; it uses the free daily quota).
