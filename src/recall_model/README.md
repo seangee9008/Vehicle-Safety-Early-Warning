@@ -16,6 +16,8 @@ python -m src.recall_model.tune      --source stg   # optional: reports/recall_t
 python -m src.recall_model.model     --source stg   # predictions, SHAP, warning weeks, model, reports/recall_metrics_stg.csv
 python -m src.recall_model.watchlist --source stg   # watchlist_stg.csv (agent input) + main.watchlist
 python -m src.recall_model.figures   --source stg   # reports/recall_warning_weeks_stg.png, recall_shap_summary_stg.png
+python -m src.recall_model.results   --source stg   # top 20/50/100 table, overlap, misses, case studies (+ PNGs)
+python -m src.recall_model.ablation  --source stg   # optional: age-only and complaints-only vs v1 (~25 min)
 ```
 
 - `monthly_features` starts with the AGENTS.md columns (`cmpl_1m`, `cmpl_3m`, `cmpl_6m`, `severe_3m`,
@@ -24,6 +26,8 @@ python -m src.recall_model.figures   --source stg   # reports/recall_warning_wee
   `months_since_recall`, keyword counts `kw_*_3m`, `y_3m`, `y_12m`, ...).
 - Model v1 uses the count, severity, vehicle age, mileage and keyword features, with LightGBM settings
   picked on 2020-21 by `tune.py`.
+- `UNKNOWN OR OTHER` (catch-all part) is left out of training and ranking (`SKIP_PARTS` in `model.py`):
+  it isn't something to investigate and had 0 positive rows in 2022-24. Its recalls still count as misses.
 - First recalls only: a car + part's complaints stop counting at its first recall (leakage rule 3), so
   months after it have nothing for the model to see. `model.py` and `tune.py` leave those rows out of
   training and ranking. `--all-rows` keeps them in and writes `*_all_rows` files; `months_since_recall`
@@ -38,4 +42,7 @@ python -m src.recall_model.figures   --source stg   # reports/recall_warning_wee
   on rows whose 6-month label was already known (`month + 6 months <= test month`).
 - Weeks of warning: recall date minus the end of the first month the cell was in the top 20,
   looking back up to 12 months and only after the cell's previous recall.
+- `results.py` writes the final tables and charts for the write-up (summary in `reports/recall_results_stg.md`).
+  "% of recalls caught" = first recalls with a complaint beforehand that were flagged in the 12 months
+  before. The six case studies are picked by hand in `CAUGHT` / `MISSED` (stg names).
 - The raw path's temporary part map lives in `sources.component_sql`; the stg tables use Angelina's map.
