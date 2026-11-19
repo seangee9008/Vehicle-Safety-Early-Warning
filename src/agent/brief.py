@@ -106,7 +106,7 @@ TOOL_CONFIG = [
 ]
 
 
-RETRYABLE_STATUS_CODES = frozenset({429, 503})
+RETRYABLE_STATUS_CODES = frozenset({429, 503, 504})
 _FLASH_MODEL_RE = re.compile(r"^gemini-[\w.]+-flash(?:-lite)?(?:-[\w.]+)?$")
 _EXCLUDED_MODEL_WORDS = ("image", "tts", "live", "audio", "embedding", "thinking", "computer")
 
@@ -136,7 +136,7 @@ def _is_daily_quota(error: Exception) -> bool:
 
 
 class ModelUnavailableError(RuntimeError):
-    """A model kept returning 429/503, so the caller should try another model."""
+    """A model kept returning 429/503/504, so the caller should try another model."""
 
     def __init__(self, model: str, status: int | None, error: Exception) -> None:
         super().__init__(f"{model} unavailable (HTTP {status}): {error}")
@@ -163,7 +163,7 @@ def _generate_with_backoff(
     contents: list[types.Content],
     config: types.GenerateContentConfig,
 ) -> Any:
-    """Call one model, retrying 429/503/timeouts briefly before giving up on that model."""
+    """Call one model, retrying 429/503/504/timeouts briefly before giving up on that model."""
     for attempt in range(MAX_RETRIES_PER_MODEL + 1):
         limit = _REQUESTS["limit"]
         if limit is not None and _REQUESTS["used"] >= limit:

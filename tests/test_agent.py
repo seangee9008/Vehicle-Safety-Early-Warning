@@ -384,8 +384,8 @@ def _api_error(code):
     return cls(code, {"message": f"HTTP {code}"})
 
 
-@pytest.mark.parametrize("code", [429, 503])
-def test_falls_back_to_next_flash_model_on_429_or_503(monkeypatch, code):
+@pytest.mark.parametrize("code", [429, 503, 504])
+def test_falls_back_to_next_flash_model_on_429_503_504(monkeypatch, code):
     from src.agent import brief as agent_brief
 
     monkeypatch.setattr(agent_brief.time, "sleep", lambda _: None)
