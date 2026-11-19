@@ -23,10 +23,10 @@ Last updated: Nov 18.
 | CI | Sean | Not started | | Nov 19 |
 | Dagster pipeline | Sean | Not started | | Nov 19 |
 | Streamlit demo skeleton | Sean | Not started | | Nov 19 |
-| Waymo: more shards + distance-adjusted error | Sean | Not started | | Nov 19 |
+| Waymo: more shards + distance-adjusted error (2 training shards; FDE@8s per metre travelled in reports/waymo_model_vs_baseline.csv) | Sean | In review | sean/waymo-model (merged into sean/bigquery) | Nov 19 |
 | dbt staging models + tests (`stg_complaints`, `stg_recalls`) | Angelina | Not started | | Nov 19 |
 | dbt intermediate models + snapshots | Angelina | Not started | | Nov 19 |
-| Waymo PyTorch model | Sean | Not started | | Nov 24 |
+| Waymo PyTorch model: v2 kept (MLP K=6, + moving non-target agents, label smoothing 0.1, temperature scaling; chosen on held-out training scenarios). validation_00000 FDE@8s best guess 18.97 m vs CV 25.85 m (-27%), minFDE 7.32 m (-72%). v1 was 18.32 m on test; v1 vs v2 in reports/waymo_v1_vs_v2.csv | Sean | In review | sean/waymo-model (merged into sean/bigquery) | Nov 24 |
 | Final demo | Sean | Not started | | Nov 24 |
 | Data quality tests + publish final tables to BigQuery | Angelina | Not started | | Nov 24 |
 | SHAP + final metrics | Justine | Done | PR #5, PR #7 | Nov 24 |
@@ -116,6 +116,9 @@ part at month end". Picked on validation, test run once:
 - Split: train 2010-2019 / tune 2020-2021 / test 2022-2024.
 - Free stack only: DuckDB, BigQuery sandbox, Gemini free tier.
 - Track B kept: the Waymo go/no-go passed.
+- Waymo model is evaluated only on validation_00000; training uses only `training_*` shards, with
+  10% of training scenarios held out for early stopping and for choosing between model versions
+  (best-guess FDE@8s on held-out prediction targets). The test set is never used to choose.
 - Contracts use the producers' real names (CONTRACTS.md). The agent cites `odi_no` (ODINO).
 - A watchlist row for month M uses complaints received by the end of M; the agent's evidence
   cutoff is the first day of the next month.
