@@ -87,6 +87,7 @@ Run from the repo root with the `.venv` Python. Each command prints what it runs
 | `python run.py waymo` | Waymo constant-velocity baseline (`python -m src.trajectory.baseline`) |
 | `python run.py briefs` | Agent briefs for `main.watchlist` (latest month, top 10), or the sample CSV if not built; cache on, never forced, at most 60 Gemini requests per run |
 | `python run.py contracts` | Check the real tables against `contracts/contracts.yml` |
+| `python run.py publish` | Final small tables -> BigQuery sandbox (`scripts/publish_bigquery.py`): dry run; `--publish` uploads, creates the views, verifies row counts. Read them with `src/bq_reader.py` (CONTRACTS.md) |
 | `python run.py status` | Print the task table from STATUS.md, then real vs placeholder per table |
 | `python run.py pipeline`, `demo`, `all` | Not built yet |
 
