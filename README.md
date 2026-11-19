@@ -1,5 +1,10 @@
 # Vehicle Safety Early Warning
 
+> **Start here:** `python run.py check`
+>
+> - [AGENTS.md](AGENTS.md): rules, ownership, data contracts and commands (the source of truth for people and AI assistants).
+> - [STATUS.md](STATUS.md): who is doing what, and when it's due.
+
 Spotting vehicle safety problems before they happen, at two scales:
 
 - **Track A, fleet level:** predict which vehicle components will be recalled, using only NHTSA consumer complaints filed **before** each recall, and measure how many weeks of warning that gives.
