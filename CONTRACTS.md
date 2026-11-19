@@ -65,3 +65,50 @@ otherwise the placeholder, and logs which (`python -m src.sources`).
 - `int.monthly_features` (from Angelina's cleaning script) is a different table from Justine's
   `main.monthly_features`, with different columns. Nothing reads it yet.
 - `main.monthly_features` and `main.watchlist` hold whichever `--source` ran last; run `stg` last.
+
+## Reading from BigQuery
+
+The final small result tables are published to the BigQuery sandbox, so the demo and teammates
+read one shared copy without local data: project `waymo-project-513802`, dataset
+`vehicle_safety` (US). Sean publishes with `python run.py publish --publish` (dry run without the
+flag); every publish is logged in `reports/bq_publish_ledger.csv` and the `publish_log` table.
+Sandbox tables expire 60 days after a publish, so republish before then.
+
+| Table / view | Rows | What |
+| --- | --- | --- |
+| `watchlist` | 720 | `main.watchlist`: top 20 car + parts per test month, with `top_reasons` |
+| `recall_metrics` | 108 | Justine's committed metric CSVs, long format (`scorer`, `top_k`, `metric`, `value`) |
+| `recall_audit` | 44 | Label audit + investigations experiment, long format |
+| `agent_briefs` | 10 | One row per brief: Markdown, model, citation and self-correction results |
+| `agent_citations` | 76 | One row per complaint cited in a brief (`brief_id`, `odino`, `valid`) |
+| `waymo_results` | 36 | Model vs constant velocity by type x horizon x predictor |
+| `waymo_demo_examples` | 50 | Agents to draw: paths, 6 model paths + confidences, lanes (JSON, agent frame) |
+| `publish_log` | 1 per table per publish | When, which commit, rows, bytes |
+| `v_watchlist_with_briefs` | view | `watchlist` LEFT JOIN `agent_briefs` on month + rank, `has_brief` |
+| `v_headline_metrics` | view | One row of headline numbers for the overview page |
+
+Every table and column has a description in BigQuery. Never published: raw/stg complaints and
+recalls, `monthly_features`, Waymo tracks.
+
+Setup once per laptop: ask Sean to give your Google account *BigQuery Data Viewer* and *BigQuery
+Job User* on the project, then run `gcloud auth application-default login`. Reading is free.
+
+```python
+from src.bq_reader import read_table, read_view
+
+headline = read_view("v_headline_metrics").iloc[0]
+print(f"precision@20 {headline.model_precision_at_20:.1%} vs baseline {headline.baseline_precision_at_20:.1%}")
+
+watch = read_view("v_watchlist_with_briefs")
+latest = watch[watch.month == watch.month.max()].sort_values("rank")
+for row in latest[latest.has_brief].itertuples():
+    print(row.rank, row.make, row.model, row.model_year, row.component)
+    print(row.brief_markdown)
+
+examples = read_table("waymo_demo_examples")   # JSON columns are already Python lists
+ex = examples.iloc[0]
+best_path = ex.model_paths[0]                   # 80 [x, y] points, highest confidence first
+```
+
+Without the helper: `SELECT * FROM \`waymo-project-513802.vehicle_safety.v_headline_metrics\``
+in the BigQuery console, or `bigquery.Client(project="waymo-project-513802").query(sql).to_dataframe()`.
