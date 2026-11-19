@@ -19,6 +19,7 @@ Last updated: Nov 18.
 | Project hub (AGENTS.md, STATUS.md, run.py) | Sean | Done | PR #6 | Nov 12 |
 | Integration: contracts + sources layer + agent on real tables + run.py | Sean | Done | PR #6 | Nov 12 |
 | Agent v1: self-correction retry, same-make recall search, SHAP reasons check, timeouts (Dec 2024 top 10: 81/81 citations valid, 10/10 pass) | Sean | In review | sean/agent-v1 | Nov 19 |
+| Label audit + investigations experiment (read-only, Justine's code untouched) | Sean | In review | sean/recall-audit | Nov 20 |
 | CI | Sean | Not started | | Nov 19 |
 | Dagster pipeline | Sean | Not started | | Nov 19 |
 | Streamlit demo skeleton | Sean | Not started | | Nov 19 |
@@ -60,6 +61,27 @@ steps (see `src/recall_model/README.md`). Until then `src/sources.py` uses place
   age picks the pool of new vehicles, complaints rank within it.
 - Base rate 0.3-0.5%, so a random top 20 catches about 0.1 recalls a month; v1 catches about 2.
 - No leakage signs (precision@20 well under 60%, median warning well under 40 weeks).
+
+**Label audit (Sean, read-only, [reports/label_audit.md](reports/label_audit.md)):** the 11.4% is
+fair grading. Model-name variants (e.g. CX-90 PHEV flagged, recall filed under CX-90) add about 2
+points. 8% of the model's misses were recalled 6-12 months later (early, not wrong). 44% of misses
+are new cars recalled for a different part, but that mostly reflects the base rate (lift falls 44x to 12x).
+
+**Investigations experiment (Sean, `src/recall_audit/investigations.py`, Justine's code imported,
+not edited):** adds "an NHTSA investigation (PE / EA / DP) is open on this car + part / car / make +
+part at month end". Picked on validation, test run once:
+
+| | precision@20 val | precision@20 test | PR-AUC test | median weeks of warning | first recalls caught |
+| --- | --- | --- | --- | --- | --- |
+| v1 | 7.1% | 11.4% | 0.031 | 22.7 | 3.7% |
+| v1 + investigations | 8.75% | 14.0% | 0.031 | 23.4 | 2.6% |
+
+- Precision@20 up 2.6 points on test, but PR-AUC is flat and it catches *fewer* different recalls:
+  an open investigation stays open for months, so the same car + parts sit in the top 20 month after
+  month. And those recalls NHTSA was already investigating, so less early warning for an investigator.
+- Leakage risk is small: 2.5% of investigation vehicle rows were added to the scope after opening.
+- Decision: keep v1 as the model. Use "open NHTSA investigation" as context in the agent's briefs
+  instead (possible next step).
 
 **Agent v1 on Justine's watchlist (2024-12, top 10, all real tables, cache on):**
 
