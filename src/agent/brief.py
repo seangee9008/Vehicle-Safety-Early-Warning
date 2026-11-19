@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
+import httpx
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -27,6 +28,8 @@ PASSED_AFTER_RETRY = "passed_after_retry"
 STILL_FAILING = "still_failing"
 COMPLAINT_LIMIT = 40
 MAX_RETRIES_PER_MODEL = 2
+# A request that hangs (seen Nov 18: one call never returned) counts like a 503.
+REQUEST_TIMEOUT_MS = 120_000
 
 load_dotenv(ROOT / ".env")
 
@@ -160,7 +163,7 @@ def _generate_with_backoff(
     contents: list[types.Content],
     config: types.GenerateContentConfig,
 ) -> Any:
-    """Call one model, retrying 429/503 briefly before giving up on that model."""
+    """Call one model, retrying 429/503/timeouts briefly before giving up on that model."""
     for attempt in range(MAX_RETRIES_PER_MODEL + 1):
         limit = _REQUESTS["limit"]
         if limit is not None and _REQUESTS["used"] >= limit:
@@ -172,8 +175,8 @@ def _generate_with_backoff(
                 contents=contents,
                 config=config,
             )
-        except APIError as error:
-            if not _is_retryable(error):
+        except (APIError, httpx.TimeoutException) as error:
+            if isinstance(error, APIError) and not _is_retryable(error):
                 raise
             if _is_daily_quota(error):  # retrying today cannot help
                 _EXHAUSTED_TODAY.add(model)
@@ -260,7 +263,9 @@ def create_brief(
         raise RuntimeError("GEMINI_API_KEY is empty; set it in the local .env file.")
     owns_client = client is None
     if client is None:
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(
+            api_key=api_key, http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_MS)
+        )
     primary = model_name or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
     try:
         tried: list[str] = []

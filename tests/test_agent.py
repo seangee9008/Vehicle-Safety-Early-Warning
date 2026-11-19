@@ -549,3 +549,23 @@ def test_daily_quota_429_skips_retries_and_marks_model(monkeypatch):
         )
     assert calls == ["m"]
     assert "m" in agent_brief._EXHAUSTED_TODAY
+
+
+def test_hung_request_times_out_and_gives_up_on_model(monkeypatch):
+    import httpx
+
+    from src.agent import brief as agent_brief
+
+    calls = []
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            calls.append(kwargs["model"])
+            raise httpx.ReadTimeout("timed out")
+
+    monkeypatch.setattr(agent_brief.time, "sleep", lambda _: None)
+    with pytest.raises(agent_brief.ModelUnavailableError):
+        agent_brief._generate_with_backoff(
+            SimpleNamespace(models=FakeModels()), model="m", contents=[], config=None
+        )
+    assert calls == ["m"] * (agent_brief.MAX_RETRIES_PER_MODEL + 1)
