@@ -3,7 +3,7 @@
 Rules, ownership and contracts are in [AGENTS.md](AGENTS.md). Update this file in the same branch
 as the work. Status is one of: Not started / In progress / In review / Done.
 
-Last updated: Nov 18.
+Last updated: Nov 19.
 
 | Task | Owner | Status | Branch or PR | Due |
 | --- | --- | --- | --- | --- |
@@ -19,15 +19,17 @@ Last updated: Nov 18.
 | Project hub (AGENTS.md, STATUS.md, run.py) | Sean | Done | PR #6 | Nov 12 |
 | Integration: contracts + sources layer + agent on real tables + run.py | Sean | Done | PR #6 | Nov 12 |
 | Agent v1: self-correction retry, same-make recall search, SHAP reasons check, timeouts (Dec 2024 top 10: 81/81 citations valid, 10/10 pass) | Sean | In review | sean/agent-v1 | Nov 19 |
+| Label audit + investigations experiment (read-only, Justine's code untouched) | Sean | In review | sean/recall-audit | Nov 20 |
 | CI | Sean | Not started | | Nov 19 |
 | Dagster pipeline | Sean | Not started | | Nov 19 |
 | Streamlit demo skeleton | Sean | Not started | | Nov 19 |
-| Waymo: more shards + distance-adjusted error | Sean | Not started | | Nov 19 |
+| Waymo: more shards + distance-adjusted error (2 training shards; FDE@8s per metre travelled in reports/waymo_model_vs_baseline.csv) | Sean | In review | sean/waymo-model (merged into sean/bigquery) | Nov 19 |
 | dbt staging models + tests (`stg_complaints`, `stg_recalls`) | Angelina | Not started | | Nov 19 |
 | dbt intermediate models + snapshots | Angelina | Not started | | Nov 19 |
-| Waymo PyTorch model | Sean | Not started | | Nov 24 |
+| Waymo PyTorch model: v2 kept (MLP K=6, + moving non-target agents, label smoothing 0.1, temperature scaling; chosen on held-out training scenarios). validation_00000 FDE@8s best guess 18.97 m vs CV 25.85 m (-27%), minFDE 7.32 m (-72%). v1 was 18.32 m on test; v1 vs v2 in reports/waymo_v1_vs_v2.csv | Sean | In review | sean/waymo-model (merged into sean/bigquery) | Nov 24 |
 | Final demo | Sean | Not started | | Nov 24 |
-| Data quality tests + publish final tables to BigQuery | Angelina | Not started | | Nov 24 |
+| BigQuery publish: 7 final tables + publish_log + 2 views (sandbox, 1.67 MB) + read helper | Sean | In review | sean/bigquery | Nov 20 |
+| Data quality tests | Angelina | Not started | | Nov 24 |
 | SHAP + final metrics | Justine | Done | PR #5, PR #7 | Nov 24 |
 | Write-up sections + presentation | Everyone | Not started | | Nov 24 |
 
@@ -61,6 +63,27 @@ steps (see `src/recall_model/README.md`). Until then `src/sources.py` uses place
 - Base rate 0.3-0.5%, so a random top 20 catches about 0.1 recalls a month; v1 catches about 2.
 - No leakage signs (precision@20 well under 60%, median warning well under 40 weeks).
 
+**Label audit (Sean, read-only, [reports/label_audit.md](reports/label_audit.md)):** the 11.4% is
+fair grading. Model-name variants (e.g. CX-90 PHEV flagged, recall filed under CX-90) add about 2
+points. 8% of the model's misses were recalled 6-12 months later (early, not wrong). 44% of misses
+are new cars recalled for a different part, but that mostly reflects the base rate (lift falls 44x to 12x).
+
+**Investigations experiment (Sean, `src/recall_audit/investigations.py`, Justine's code imported,
+not edited):** adds "an NHTSA investigation (PE / EA / DP) is open on this car + part / car / make +
+part at month end". Picked on validation, test run once:
+
+| | precision@20 val | precision@20 test | PR-AUC test | median weeks of warning | first recalls caught |
+| --- | --- | --- | --- | --- | --- |
+| v1 | 7.1% | 11.4% | 0.031 | 22.7 | 3.7% |
+| v1 + investigations | 8.75% | 14.0% | 0.031 | 23.4 | 2.6% |
+
+- Precision@20 up 2.6 points on test, but PR-AUC is flat and it catches *fewer* different recalls:
+  an open investigation stays open for months, so the same car + parts sit in the top 20 month after
+  month. And those recalls NHTSA was already investigating, so less early warning for an investigator.
+- Leakage risk is small: 2.5% of investigation vehicle rows were added to the scope after opening.
+- Decision: keep v1 as the model. Use "open NHTSA investigation" as context in the agent's briefs
+  instead (possible next step).
+
 **Agent v1 on Justine's watchlist (2024-12, top 10, all real tables, cache on):**
 
 | Rank | Vehicle | Component | Model used | Citations valid | Uncited | Evidence bullets | Self-correction |
@@ -86,6 +109,14 @@ steps (see `src/recall_model/README.md`). Until then `src/sources.py` uses place
   120 s timeout) and five got `504 DEADLINE_EXCEEDED` (now retried, then the next model).
 - Example: [docs/example_brief_real.md](docs/example_brief_real.md) (Kia EV9, rank 6).
 
+**BigQuery (Nov 19):** the final results are in `waymo-project-513802.vehicle_safety` (US). Read them
+with `src/bq_reader.py` (`read_table`, `read_view`); setup and examples in
+[CONTRACTS.md](CONTRACTS.md#reading-from-bigquery). Published: watchlist 720 rows, recall_metrics 108,
+recall_audit 44, agent_briefs 10, agent_citations 76, waymo_results 36, waymo_demo_examples 50
+(1.39 MB of the 1.67 MB total), publish_log, plus views `v_watchlist_with_briefs` and
+`v_headline_metrics`. Row counts verified against local. Ledger: 1.67 MB of the 2 GB cap.
+**Tables expire Jan 18, 2027: republish (`python run.py publish --publish`) before then.**
+
 ## Decisions
 
 - Unit of prediction: make + model + model_year + component, per month.
@@ -94,6 +125,9 @@ steps (see `src/recall_model/README.md`). Until then `src/sources.py` uses place
 - Split: train 2010-2019 / tune 2020-2021 / test 2022-2024.
 - Free stack only: DuckDB, BigQuery sandbox, Gemini free tier.
 - Track B kept: the Waymo go/no-go passed.
+- Waymo model is evaluated only on validation_00000; training uses only `training_*` shards, with
+  10% of training scenarios held out for early stopping and for choosing between model versions
+  (best-guess FDE@8s on held-out prediction targets). The test set is never used to choose.
 - Contracts use the producers' real names (CONTRACTS.md). The agent cites `odi_no` (ODINO).
 - A watchlist row for month M uses complaints received by the end of M; the agent's evidence
   cutoff is the first day of the next month.
@@ -102,7 +136,8 @@ steps (see `src/recall_model/README.md`). Until then `src/sources.py` uses place
 ## Requested from teammates
 
 **Justine**
-- **Commit `reports/recall_ablation_stg.csv`:** the write-up cites it, but it is not in the repo.
+- **Commit `reports/recall_ablation_stg.csv`:** the write-up cites it, but it is not in the repo
+  (the BigQuery publish picks it up automatically once it is).
 - (Done in PR #7: filter `UNKNOWN OR OTHER`, top 50 / top 100, age vs complaints.)
 - (Smaller) `main.monthly_features` and `main.watchlist` hold whichever `--source` ran last. A
   `source` column on `main.monthly_features` (the watchlist has one) would let the contract check
