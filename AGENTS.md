@@ -62,6 +62,7 @@ We use the producers' real names. All live in `data/nhtsa.duckdb`.
 - Open a PR and get one teammate's review before merging. Never push to `main`.
 - Never hand-edit AI-generated briefs. If a brief fails validation, fix the agent or regenerate.
 - Tests run without network access or API keys (mock Gemini, use tiny fixtures).
+- CI (`.github/workflows/ci.yml`) runs ruff and `pytest -q` on every PR; keep it green.
 - BigQuery sandbox (project `waymo-project-513802`, dataset `vehicle_safety`): never load raw
   data. Only the final small tables, in week 3, as full replacements. 10 GB limit, 60-day expiry.
 
@@ -79,17 +80,19 @@ Run from the repo root with the `.venv` Python. Each command prints what it runs
 
 | Command | What it does |
 | --- | --- |
-| `python run.py check` | `scripts/check_setup.py`, then `pytest -q`, then `ruff check .` |
+| `python run.py check` | `scripts/check_setup.py`, then `pytest -q`, then the lint below |
 | `python run.py data` | Download NHTSA files incl. complaints 2010-2026 (skips files already present), then load DuckDB if it doesn't exist yet (`--reload` to rebuild) |
 | `python run.py dbt` | `dbt build` in `dbt/` (copies `profiles.yml.example` to `profiles.yml` if missing) |
 | `python run.py test` | `pytest -q` |
-| `python run.py lint` | `ruff check .` |
+| `python run.py lint` | `ruff check .`, skipping Angelina's cleaning scripts and notebook until their fixes land (same as CI) |
 | `python run.py waymo` | Waymo constant-velocity baseline (`python -m src.trajectory.baseline`) |
 | `python run.py briefs` | Agent briefs for `main.watchlist` (latest month, top 10), or the sample CSV if not built; cache on, never forced, at most 60 Gemini requests per run |
 | `python run.py contracts` | Check the real tables against `contracts/contracts.yml` |
 | `python run.py publish` | Final small tables -> BigQuery sandbox (`scripts/publish_bigquery.py`): dry run; `--publish` uploads, creates the views, verifies row counts. Read them with `src/bq_reader.py` (CONTRACTS.md) |
 | `python run.py status` | Print the task table from STATUS.md, then real vs placeholder per table |
-| `python run.py pipeline`, `demo`, `all` | Not built yet |
+| `python run.py pipeline` | Rebuild everything in order, stopping at the first failure: stg cleaning, Justine's labels / features / model / watchlist / results, contracts, label audit, briefs (cache on, request cap), Waymo evaluate + demo examples, BigQuery plan (dry run). `--dry-run` lists the steps. Rewrites Justine's committed `reports/recall_*_stg.csv` (`git checkout -- reports` restores them) |
+| `python run.py all` | `check`, then `pipeline` |
+| `python run.py demo` | Not built yet (`app/`) |
 
 The agent itself: `python -m src.agent.run --watchlist <csv> --top 5` (add `--force` only to
 regenerate on purpose; it uses the free daily quota).
