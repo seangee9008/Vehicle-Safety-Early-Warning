@@ -1,7 +1,8 @@
 """One entry point for common project tasks. See AGENTS.md (Commands).
 
-    python run.py check | data | dbt | test | lint | waymo | briefs | status | contracts
-    python run.py pipeline | demo | all     (not built yet)
+    python run.py check | data | dbt | test | lint | waymo | briefs | status | contracts | publish
+    python run.py pipeline | all    (rebuild everything in order; --dry-run lists the steps)
+    python run.py demo              (not built yet)
 
 Standard library only, so it works on Mac and Windows before anything else is installed.
 """
@@ -19,6 +20,8 @@ ROOT = Path(__file__).resolve().parent
 PY = sys.executable
 BRIEF_REQUEST_CAP = 60
 COMPLAINT_YEARS = ["2010-2014", "2015-2019", "2020-2024", "2025-2026"]
+# Lint skips Angelina's cleaning scripts and notebook until their fixes land (same list as CI).
+LINT_EXCLUDE = "notebooks,scripts/nhtsa_data_cleaning.py,scripts/nhtsa_data_table_cleaning.py"
 
 
 def _run(cmd: list[str], cwd: Path = ROOT) -> int:
@@ -49,7 +52,7 @@ def cmd_test(_: argparse.Namespace) -> int:
 
 
 def cmd_lint(_: argparse.Namespace) -> int:
-    return _run([PY, "-m", "ruff", "check", "."])
+    return _run([PY, "-m", "ruff", "check", ".", "--extend-exclude", LINT_EXCLUDE])
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -115,6 +118,53 @@ def cmd_publish(args: argparse.Namespace) -> int:
     return _run([PY, "scripts/publish_bigquery.py", *args.extra])
 
 
+def _recall_step(module: str) -> list[str]:
+    return [PY, "-m", f"src.recall_model.{module}", "--source", "stg"]
+
+
+# Rebuild from the loaded raw tables (python run.py data) to the published results, using each
+# owner's documented command (src/recall_model/README.md, src/trajectory/README.md).
+PIPELINE = [
+    ("clean: stg.complaints + stg.recalls (Angelina)", [PY, "scripts/nhtsa_data_table_cleaning.py"]),
+    ("labels (Justine)", _recall_step("labels")),
+    ("features: main.monthly_features (Justine)", _recall_step("features")),
+    ("model + backtest (Justine)", _recall_step("model")),
+    ("watchlist: main.watchlist (Justine)", _recall_step("watchlist")),
+    ("results tables (Justine)", _recall_step("results")),
+    ("contracts", [PY, "-m", "src.contracts", "--check"]),
+    ("label audit", [PY, "-m", "src.recall_audit.label_audit"]),
+    ("agent briefs (cache on, request cap)",
+     [PY, "-m", "src.agent.run", "--top", "10", "--max-requests", str(BRIEF_REQUEST_CAP)]),
+    ("Waymo: model vs baseline", [PY, "-m", "src.trajectory.evaluate", "--no-plot"]),
+    ("Waymo: demo examples", [PY, "-m", "src.trajectory.demo_examples"]),
+    ("BigQuery publish plan (dry run)", [PY, "scripts/publish_bigquery.py"]),
+]
+
+
+def cmd_pipeline(args: argparse.Namespace) -> int:
+    """Every step in order; stops at the first failure. Never uploads (publish is a dry run)."""
+    for i, (name, cmd) in enumerate(PIPELINE, 1):
+        print(f"\n[{i}/{len(PIPELINE)}] {name}", flush=True)
+        if args.dry_run:
+            print("  " + " ".join("python" if part == PY else part for part in cmd))
+            continue
+        if _run(cmd) != 0:
+            print(f"\npipeline stopped at step {i} ({name}); fix it and rerun.")
+            return 1
+    if not args.dry_run:
+        print("\nDone. Justine's model step rewrites her committed reports/recall_*_stg.csv with this "
+              "run's numbers; `git checkout -- reports` restores hers. To upload: "
+              "python run.py publish --publish")
+    return 0
+
+
+def cmd_all(args: argparse.Namespace) -> int:
+    if not args.dry_run and cmd_check(args) != 0:
+        print("\nall: setup/tests/lint failed; pipeline not run.")
+        return 1
+    return cmd_pipeline(args)
+
+
 def cmd_status(_: argparse.Namespace) -> int:
     lines = (ROOT / "STATUS.md").read_text(encoding="utf-8").splitlines()
     start = next((i for i, line in enumerate(lines) if line.startswith("| Task")), None)
@@ -142,7 +192,9 @@ COMMANDS = {
     "status": cmd_status,
     "contracts": cmd_contracts,
     "publish": cmd_publish,
-    **{name: (lambda _, n=name: _not_built(n)) for name in ("pipeline", "demo", "all")},
+    "pipeline": cmd_pipeline,
+    "all": cmd_all,
+    "demo": lambda _: _not_built("demo"),
 }
 
 
@@ -150,6 +202,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Project tasks. See AGENTS.md.")
     parser.add_argument("command", choices=COMMANDS)
     parser.add_argument("--reload", action="store_true", help="data: rebuild data/nhtsa.duckdb")
+    parser.add_argument("--dry-run", action="store_true", help="pipeline/all: list the steps only")
     args, extra = parser.parse_known_args()
     if extra and args.command != "publish":
         parser.error(f"unrecognized arguments: {' '.join(extra)}")
