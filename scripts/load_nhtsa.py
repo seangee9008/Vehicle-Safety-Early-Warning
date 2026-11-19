@@ -20,7 +20,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from src.nhtsa_schemas import DROP, TABLES  # noqa: E402
+from src.nhtsa_schemas import DROP, TABLES
 
 RAW = ROOT / "data" / "raw" / "nhtsa"
 OUT = ROOT / "data" / "processed" / "nhtsa"

@@ -25,8 +25,7 @@ def test_recall_schema_matches_dictionary():
 
 def _write_tfrecord(path: Path, records: list[bytes]) -> None:
     with open(path, "wb") as f:
-        for r in records:
-            f.write(struct.pack("<Q", len(r)) + b"\0" * 4 + r + b"\0" * 4)
+        f.writelines(struct.pack("<Q", len(r)) + b"\0" * 4 + r + b"\0" * 4 for r in records)
 
 
 @pytest.mark.skipif(not (ROOT / "src" / "waymo_pb" / "waymo_open_dataset").exists(),
