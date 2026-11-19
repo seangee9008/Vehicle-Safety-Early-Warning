@@ -30,7 +30,7 @@ def main() -> None:
         try:
             m = importlib.import_module(mod)
             check(f"{mod} {getattr(m, '__version__', '')}".strip(), True)
-        except Exception:
+        except (ImportError, OSError, RuntimeError):  # OSError: missing native lib (e.g. libomp)
             check(mod, False, "run: pip install -r requirements.txt")
 
     print("\nCommand-line tools")

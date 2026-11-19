@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from src.waymo_reader import iter_scenarios, map_frame, tracks_frame  # noqa: E402
+from src.waymo_reader import iter_scenarios, map_frame, tracks_frame
 
 RAW = ROOT / "data" / "raw" / "waymo"
 OUT = ROOT / "data" / "processed" / "waymo"

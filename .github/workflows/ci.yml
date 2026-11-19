@@ -1,0 +1,48 @@
+# Runs on every PR and every push to main: lint, then the offline test suite.
+# Tests need no data, no API keys and no network (Gemini and BigQuery are mocked).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      # same ruff as the team's .venv, so the rules can't drift
+      - run: pip install ruff==0.17.3
+      # Angelina's cleaning scripts and notebook are excluded until their lint fixes land
+      # (STATUS.md, "Requested from teammates").
+      - run: >-
+          ruff check . --output-format github
+          --extend-exclude "notebooks,scripts/nhtsa_data_cleaning.py,scripts/nhtsa_data_table_cleaning.py"
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      # CPU-only PyTorch: a fraction of the default CUDA download
+      - run: >-
+          pip install -r requirements.txt
+          --extra-index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pytest -q
