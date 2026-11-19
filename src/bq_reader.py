@@ -57,7 +57,8 @@ def _read(name: str, allowed: tuple[str, ...], kind: str, limit: int | None) -> 
     from google.auth.exceptions import RefreshError
 
     try:
-        df = get_client().query(sql).to_dataframe()
+        # small tables: the REST endpoint is enough (no BigQuery Storage API client needed)
+        df = get_client().query(sql).to_dataframe(create_bqstorage_client=False)
     except RefreshError as error:
         raise RuntimeError(_AUTH_HELP) from error
     except Forbidden as error:
