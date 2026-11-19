@@ -19,19 +19,39 @@ Last updated: Nov 19.
 | Project hub (AGENTS.md, STATUS.md, run.py) | Sean | Done | PR #6 | Nov 12 |
 | Integration: contracts + sources layer + agent on real tables + run.py | Sean | Done | PR #6 | Nov 12 |
 | Agent v1: self-correction retry, same-make recall search, SHAP reasons check, timeouts (Dec 2024 top 10: 81/81 citations valid, 10/10 pass) | Sean | Done | PR #8 | Nov 19 |
-| Label audit + investigations experiment (read-only, Justine's code untouched) | Sean | In review | PR #9 merged into sean/agent-v1; PR #11 to main | Nov 20 |
-| CI: GitHub Actions, ruff + offline pytest on every PR | Sean | In review | sean/ci | Nov 19 |
-| Pipeline: `python run.py pipeline` / `all` (replaces Dagster, see Decisions) | Sean | In review | sean/ci | Nov 19 |
-| Streamlit demo skeleton | Sean | Not started | | Nov 19 |
-| Waymo: more shards + distance-adjusted error (2 training shards; FDE@8s per metre travelled in reports/waymo_model_vs_baseline.csv) | Sean | In review | sean/waymo-model (merged into sean/bigquery) | Nov 19 |
+| Label audit + investigations experiment (read-only, Justine's code untouched) | Sean | Done | PR #9, PR #11 | Nov 20 |
+| CI: GitHub Actions, ruff + offline pytest on every PR | Sean | Done | PR #12 | Nov 19 |
+| Pipeline: `python run.py pipeline` / `all` (replaces Dagster, see Decisions) | Sean | Done | PR #12 | Nov 19 |
+| Streamlit demo (`app/`, reads BigQuery via `src/bq_reader.py`) | Angelina, Justine | In progress | | Nov 24 |
+| Waymo: more shards + distance-adjusted error (2 training shards; FDE@8s per metre travelled in reports/waymo_model_vs_baseline.csv) | Sean | Done | PR #10, PR #11 | Nov 19 |
 | dbt staging models + tests (`stg_complaints`, `stg_recalls`) | Angelina | Not started | | Nov 19 |
 | dbt intermediate models + snapshots | Angelina | Not started | | Nov 19 |
-| Waymo PyTorch model: v2 kept (MLP K=6, + moving non-target agents, label smoothing 0.1, temperature scaling; chosen on held-out training scenarios). validation_00000 FDE@8s best guess 18.97 m vs CV 25.85 m (-27%), minFDE 7.32 m (-72%). v1 was 18.32 m on test; v1 vs v2 in reports/waymo_v1_vs_v2.csv | Sean | In review | sean/waymo-model (merged into sean/bigquery) | Nov 24 |
-| Final demo | Sean | Not started | | Nov 24 |
-| BigQuery publish: 7 final tables + publish_log + 2 views (sandbox, 1.67 MB) + read helper | Sean | In review | PR #10 merged into sean/recall-audit; PR #11 to main | Nov 20 |
+| Waymo PyTorch model: v2 kept (MLP K=6, + moving non-target agents, label smoothing 0.1, temperature scaling; chosen on held-out training scenarios). validation_00000 FDE@8s best guess 18.97 m vs CV 25.85 m (-27%), minFDE 7.32 m (-72%). v1 was 18.32 m on test; v1 vs v2 in reports/waymo_v1_vs_v2.csv | Sean | Done | PR #10, PR #11 | Nov 24 |
+| Final demo (presented) | Angelina, Justine | In progress | | Nov 24 |
+| BigQuery publish: 7 final tables + publish_log + 2 views (sandbox, 1.67 MB) + read helper | Sean | Done | PR #10, PR #11 | Nov 20 |
 | Data quality tests | Angelina | Not started | | Nov 24 |
 | SHAP + final metrics | Justine | Done | PR #5, PR #7 | Nov 24 |
+| Public README (results, team, how to run) | Sean | In review | sean/docs-final | Nov 20 |
 | Write-up sections + presentation | Everyone | Not started | | Nov 24 |
+
+## Headline numbers
+
+> **The single official values** (use these in the write-up, slides and demo; same as README.md).
+>
+> | Track | Metric | Value | Baseline | Source |
+> | --- | --- | --- | --- | --- |
+> | A: recall model, test 2022-24 | precision@20 | **11.8%** | 8.9% | `reports/recall_metrics_stg.csv` |
+> | | PR-AUC | **0.031** | 0.016 | `reports/recall_metrics_stg.csv` |
+> | | recalls caught, top 100 (of 1,685 first recalls with prior complaints) | **11.1%** (187) | 4.4% (74) | `reports/recall_topk_stg.csv` |
+> | | median weeks of warning (top 20) | **23.2** | 35.1 | `reports/recall_metrics_stg.csv` |
+> | A: agent, Dec 2024 top 10 | briefs passing every check | **10/10** | | `reports/briefs/watchlist_2024-12/validation.csv`, BigQuery `agent_briefs` |
+> | | citations | **81 citations / 76 unique complaints, all valid** | | BigQuery `agent_citations` |
+> | B: Waymo, 1,268 test agents | FDE@8s best guess | **18.97 m (-27%)** | 25.85 m (constant velocity) | `reports/waymo_model_vs_baseline.csv` |
+> | | FDE@8s best of 6 | **7.32 m (-72%)** | 25.85 m | `reports/waymo_model_vs_baseline.csv` |
+>
+> Reruns of the recall backtest give 11.4% precision@20 (and PR-AUC 0.031, 22.7 weeks): run-to-run
+> noise of about 1 point (Justine's write-up). 11.8% is the committed, official value. The label
+> audit and the investigations experiment below were computed on the 11.4% rerun's predictions.
 
 ## Tables (python run.py status)
 
@@ -48,23 +68,25 @@ steps (see `src/recall_model/README.md`). Until then `src/sources.py` uses place
 
 ## Results so far
 
-**Recall model (Justine, PR #7, stg, test 2022-24; Sean's rerun Nov 18):**
+**Recall model (Justine, PR #7, stg, test 2022-24). Official values from her committed CSVs; Sean's Nov 18 rerun in brackets:**
 
 | Scorer | precision@20 | PR-AUC | median weeks of warning | recalls caught in top 20 / 50 / 100 |
 | --- | --- | --- | --- | --- |
-| LightGBM v1 | 11.4% (her write-up: 11.8%) | 0.031 | 22.7 | 63 / 117 / 185 (3.7% / 6.9% / 11.0%) |
+| LightGBM v1 | 11.8% (rerun 11.4%) | 0.031 | 23.2 (rerun 22.7) | 62 / 126 / 187 (3.7% / 7.5% / 11.1%) |
 | Complaint-count baseline | 8.9% | 0.016 | 35.1 | 30 / 45 / 74 (1.8% / 2.7% / 4.4%) |
 
 - `UNKNOWN OR OTHER` is no longer scored (was 65 of 720 watchlist rows). No table or column changes.
-- Top 50 / 100: precision drops (9.6% / 8.2%) but the model catches about 2x / 3x more recalls.
-- Age vs complaints (precision@20 / PR-AUC / caught in top 20): age only 7.6% / 0.026 / 35,
-  complaints only 7.1% / 0.017 / 42, both (v1) 11.4% / 0.031 / 63. Neither alone comes close:
-  age picks the pool of new vehicles, complaints rank within it.
+- Top 50 / 100: precision drops (9.6% / 7.9%) but the model catches about 2x / 3x more recalls.
+- Age vs complaints (precision@20 / PR-AUC / caught in top 20, `reports/recall_results_stg.md`):
+  age only 7.6% / 0.026 / 35, complaints only 6.4% / 0.017 / 41, both (v1) 11.8% / 0.031 / 62.
+  Neither alone comes close: age picks the pool of new vehicles, complaints rank within it.
+- The limit is the data: 76% of missed recalls (1,241 of 1,623) had two or fewer complaints in the
+  year before (`reports/recall_miss_reasons_stg.csv`).
 - Base rate 0.3-0.5%, so a random top 20 catches about 0.1 recalls a month; v1 catches about 2.
 - No leakage signs (precision@20 well under 60%, median warning well under 40 weeks).
 
-**Label audit (Sean, read-only, [reports/label_audit.md](reports/label_audit.md)):** the 11.4% is
-fair grading. Model-name variants (e.g. CX-90 PHEV flagged, recall filed under CX-90) add about 2
+**Label audit (Sean, read-only, [reports/label_audit.md](reports/label_audit.md), on the 11.4% rerun):**
+the grading is fair. Model-name variants (e.g. CX-90 PHEV flagged, recall filed under CX-90) add about 2
 points. 8% of the model's misses were recalled 6-12 months later (early, not wrong). 44% of misses
 are new cars recalled for a different part, but that mostly reflects the base rate (lift falls 44x to 12x).
 
@@ -100,7 +122,9 @@ part at month end". Picked on validation, test run once:
 | 10 | Jeep Grand Cherokee 4xe 2024 | ENGINE AND ENGINE COOLING | gemini-3.5-flash-lite | 5/5 | 0 | 5 | passed first try |
 | **Total** | | | | **81/81** | **0** | **49** | **10 first try, 0 after retry, 0 failing** |
 
-- 10/10 pass every check. Self-correction was not needed this run (it is covered by mocked tests).
+- 10/10 pass every check: 81 citations of 76 unique complaints (a few briefs cite the same
+  complaint in two bullets), all valid. Self-correction was not needed this run (it is covered by
+  mocked tests).
 - Tacoma's cached v0 brief had 10 evidence bullets; the run regenerated it (5 bullets).
 - Traverse and Blazer EV are cached v0 briefs that still pass, so they were kept; they lack the
   reasons check and searched recalls across all makes. `--force` regenerates them.
