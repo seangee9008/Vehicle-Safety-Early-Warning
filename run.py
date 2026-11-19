@@ -110,6 +110,11 @@ def cmd_contracts(_: argparse.Namespace) -> int:
     return _run([PY, "-m", "src.contracts", "--check"])
 
 
+def cmd_publish(args: argparse.Namespace) -> int:
+    # Final small tables -> BigQuery sandbox. Dry run unless --publish is passed.
+    return _run([PY, "scripts/publish_bigquery.py", *args.extra])
+
+
 def cmd_status(_: argparse.Namespace) -> int:
     lines = (ROOT / "STATUS.md").read_text(encoding="utf-8").splitlines()
     start = next((i for i, line in enumerate(lines) if line.startswith("| Task")), None)
@@ -136,6 +141,7 @@ COMMANDS = {
     "briefs": cmd_briefs,
     "status": cmd_status,
     "contracts": cmd_contracts,
+    "publish": cmd_publish,
     **{name: (lambda _, n=name: _not_built(n)) for name in ("pipeline", "demo", "all")},
 }
 
@@ -144,7 +150,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Project tasks. See AGENTS.md.")
     parser.add_argument("command", choices=COMMANDS)
     parser.add_argument("--reload", action="store_true", help="data: rebuild data/nhtsa.duckdb")
-    args = parser.parse_args()
+    args, extra = parser.parse_known_args()
+    if extra and args.command != "publish":
+        parser.error(f"unrecognized arguments: {' '.join(extra)}")
+    args.extra = extra
     raise SystemExit(COMMANDS[args.command](args))
 
 
