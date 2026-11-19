@@ -30,6 +30,8 @@ MODEL_FEATURES = ["cmpl_1m", "cmpl_3m", "cmpl_6m", "cmpl_12m", "growth_3m", "sha
                   "vehicle_age", "median_miles_12m",
                   "kw_stall_3m", "kw_smoke_3m", "kw_no_warning_3m", "kw_lost_power_3m", "kw_tow_3m"]
 PARAMS = {"learning_rate": 0.05, "n_estimators": 200, "num_leaves": 15}
+# catch-all part: nothing to investigate, and almost never recalled (0 positive rows in 2022-24)
+SKIP_PARTS = ["UNKNOWN OR OTHER"]
 TOP = 20
 LOOKBACK_MONTHS = 12
 
@@ -37,6 +39,7 @@ LOOKBACK_MONTHS = 12
 def load_features(source, horizon, start, end="2100-01-01", features=MODEL_FEATURES, first_only=False):
     cols = KEYS + ["month"] + features + [f"y_{horizon}m"]
     keep = (pc.field("month") >= pd.Timestamp(start).date()) & (pc.field("month") <= pd.Timestamp(end).date())
+    keep = keep & ~pc.field("component").isin(SKIP_PARTS)
     if first_only:
         # drop months after a car + part's first recall: its complaints stop counting there (rule 3),
         # so those rows have nothing for the model to see
@@ -74,9 +77,9 @@ def validate(df, horizon, val_start, val_end):
     return val, model
 
 
-def flags(pred, col):
+def flags(pred, col, top=TOP):
     ranked = pred.sort_values(["month", col], ascending=[True, False])
-    return ranked.groupby("month").head(TOP)
+    return ranked.groupby("month").head(top)
 
 
 def shap_values(model, rows):
@@ -87,19 +90,20 @@ def shap_values(model, rows):
     return out
 
 
-def backtest(df, horizon, test_start, test_end, refit_every):
+def backtest(df, horizon, test_start, test_end, refit_every, features=MODEL_FEATURES):
     months = pd.date_range(test_start - pd.DateOffset(months=LOOKBACK_MONTHS), test_end, freq="MS")
     parts, shap_parts, model = [], [], None
     for i, month in enumerate(months):
         if i % refit_every == 0:
             t = time.time()
-            model = fit(known_by(df, month, horizon))
+            model = fit(known_by(df, month, horizon), features)
             print(f"  fit for {month:%Y-%m} in {time.time() - t:.0f}s", flush=True)
         part = df[df["month"] == month].copy()
-        part["score"] = model.predict_proba(part[MODEL_FEATURES])[:, 1]
+        part["score"] = model.predict_proba(part[features])[:, 1]
         parts.append(part)
-        shap_parts.append(shap_values(model, flags(part, "score")))
-    return pd.concat(parts), pd.concat(shap_parts), model
+        if features == MODEL_FEATURES:
+            shap_parts.append(shap_values(model, flags(part, "score")))
+    return pd.concat(parts), pd.concat(shap_parts) if shap_parts else None, model
 
 
 def recall_events(source, start, end):
@@ -130,7 +134,7 @@ def recall_events(source, start, end):
 
 
 def warning_weeks(flagged, events):
-    # first top-20 flag in the 12 months before each recall and after the cell's previous recall;
+    # first flag in the 12 months before each recall and after the cell's previous recall;
     # the flag is known at month end
     f = flagged[KEYS + ["month"]].copy()
     f["as_of"] = f["month"] + pd.offsets.MonthEnd(0)
@@ -144,10 +148,10 @@ def warning_weeks(flagged, events):
     return out
 
 
-def metrics(pred, events, col, lead_in=None):
-    flagged = flags(pred, col)
+def metrics(pred, events, col, lead_in=None, top=TOP):
+    flagged = flags(pred, col, top)
     # months before the period can also give warning for recalls early in it
-    pool = flagged if lead_in is None else pd.concat([flags(lead_in, col), flagged])
+    pool = flagged if lead_in is None else pd.concat([flags(lead_in, col, top), flagged])
     caught = warning_weeks(pool, events)
     with_cmpl = caught[caught["had_complaints"]]
     # after a cell's first recall its complaints never count again, so only first recalls can be caught
