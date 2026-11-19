@@ -11,19 +11,25 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
+import httpx
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
 
 from src.agent import data_access
-from src.agent.validate import validate_brief
+from src.agent.validate import validate_brief, validation_errors
 
 ROOT = data_access.ROOT
 DEFAULT_MODEL = "gemini-3.6-flash"
-MAX_TOOL_CALLS = 6
+MAX_TOOL_CALLS = 8  # shared by the first try and the one self-correction retry
+PASSED_FIRST_TRY = "passed_first_try"
+PASSED_AFTER_RETRY = "passed_after_retry"
+STILL_FAILING = "still_failing"
 COMPLAINT_LIMIT = 40
 MAX_RETRIES_PER_MODEL = 2
+# A request that hangs (seen Nov 18: one call never returned) counts like a 503.
+REQUEST_TIMEOUT_MS = 120_000
 
 load_dotenv(ROOT / ".env")
 
@@ -33,20 +39,29 @@ complaints. The evidence cutoff date in the prompt is a hard limit: do not use o
 dated on or after it. Do not claim that a trend, rate, or comparison is measured unless the
 complaint records provided establish it.
 
-Return Markdown with exactly these sections:
+Return Markdown with exactly these sections, in this order:
 ## Failure pattern (2-3 sentences)
 ## Severity
 ## Evidence
+## Watchlist reasons check
 ## Similar past recalls
 ## Suggested next step
 
-Provide 3-6 Evidence bullets. Every Evidence bullet must cite at least one complaint as
-[ODINO 12345678]. Use only IDs returned by get_complaints. If citing multiple complaints in
-one bullet, format each citation separately, like [ODINO 12345678], [ODINO 87654321]; never
-put multiple IDs inside one bracket pair. Severity values are computed by the application and supplied in the prompt;
-repeat those counts without recalculating them. For similar recalls, list campaign IDs returned by
-find_similar_recalls or write "none found". Keep suggestions clearly labeled as next steps, not as
-established facts."""
+Provide 3-6 Evidence bullets, never more. Every Evidence bullet must cite at least one complaint as
+[ODINO 12345678]. Use only IDs returned by get_complaints, copied digit for digit. If citing
+multiple complaints in one bullet, format each citation separately, like [ODINO 12345678],
+[ODINO 87654321]. Severity values are computed by the application and supplied in the prompt;
+repeat those counts without recalculating them.
+
+Watchlist reasons check: the prompt lists the risk model's top reasons for flagging this row. Give
+one bullet per reason saying whether the complaints SUPPORT it, CONTRADICT it, or it is CONTEXT
+(not evidence of a defect, e.g. vehicle age). Base this only on the complaint records.
+
+Similar past recalls: call find_similar_recalls once. Its result says which search was used
+("same_make" or "all_makes"). Start the section with "Search: same make (<MAKE>)" or
+"Search: all makes (no <MAKE> recalls for this part)". Then list relevant campaign IDs with a
+few words on the defect, or write "none relevant" if the results are about different defects.
+Keep suggestions clearly labeled as next steps, not as established facts."""
 
 
 def _schema(type_name: str, properties: dict[str, dict[str, str]], required: list[str]) -> dict[str, Any]:
@@ -74,7 +89,7 @@ TOOL_CONFIG = [
             },
             {
                 "name": "find_similar_recalls",
-                "description": "Find similar historical NHTSA recalls dated before the watchlist month.",
+                "description": "Find earlier NHTSA recalls for the same part: the same make first, all makes only if the make has none.",
                 "parameters": _schema(
                     "OBJECT",
                     {
@@ -91,7 +106,7 @@ TOOL_CONFIG = [
 ]
 
 
-RETRYABLE_STATUS_CODES = frozenset({429, 503})
+RETRYABLE_STATUS_CODES = frozenset({429, 503, 504})
 _FLASH_MODEL_RE = re.compile(r"^gemini-[\w.]+-flash(?:-lite)?(?:-[\w.]+)?$")
 _EXCLUDED_MODEL_WORDS = ("image", "tts", "live", "audio", "embedding", "thinking", "computer")
 
@@ -121,7 +136,7 @@ def _is_daily_quota(error: Exception) -> bool:
 
 
 class ModelUnavailableError(RuntimeError):
-    """A model kept returning 429/503, so the caller should try another model."""
+    """A model kept returning 429/503/504, so the caller should try another model."""
 
     def __init__(self, model: str, status: int | None, error: Exception) -> None:
         super().__init__(f"{model} unavailable (HTTP {status}): {error}")
@@ -148,7 +163,7 @@ def _generate_with_backoff(
     contents: list[types.Content],
     config: types.GenerateContentConfig,
 ) -> Any:
-    """Call one model, retrying 429/503 briefly before giving up on that model."""
+    """Call one model, retrying 429/503/504/timeouts briefly before giving up on that model."""
     for attempt in range(MAX_RETRIES_PER_MODEL + 1):
         limit = _REQUESTS["limit"]
         if limit is not None and _REQUESTS["used"] >= limit:
@@ -160,8 +175,8 @@ def _generate_with_backoff(
                 contents=contents,
                 config=config,
             )
-        except APIError as error:
-            if not _is_retryable(error):
+        except (APIError, httpx.TimeoutException) as error:
+            if isinstance(error, APIError) and not _is_retryable(error):
                 raise
             if _is_daily_quota(error):  # retrying today cannot help
                 _EXHAUSTED_TODAY.add(model)
@@ -248,7 +263,9 @@ def create_brief(
         raise RuntimeError("GEMINI_API_KEY is empty; set it in the local .env file.")
     owns_client = client is None
     if client is None:
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(
+            api_key=api_key, http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_MS)
+        )
     primary = model_name or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
     try:
         tried: list[str] = []
@@ -277,6 +294,65 @@ def create_brief(
             client.close()
 
 
+def _converse(
+    client: Any,
+    model_id: str,
+    contents: list[Any],
+    config: Any,
+    run_tool: Any,
+    tool_budget: list[int],
+) -> str:
+    """Generate until the model returns text, answering its tool calls. Appends to contents."""
+    while True:
+        response = _generate_with_backoff(
+            client, model=model_id, contents=contents, config=config
+        )
+        candidates = getattr(response, "candidates", None) or []
+        if not candidates:
+            text = getattr(response, "text", None)
+            if text:
+                return text
+            raise RuntimeError("Gemini returned no candidate or text.")
+        model_content = candidates[0].content
+        contents.append(model_content)
+        function_parts = [
+            part for part in model_content.parts if getattr(part, "function_call", None)
+        ]
+        if not function_parts:
+            text = getattr(response, "text", None) or "\n".join(
+                part.text for part in model_content.parts if getattr(part, "text", None)
+            )
+            if not text:
+                raise RuntimeError("Gemini returned an empty brief.")
+            return text
+        if tool_budget[0] + len(function_parts) > MAX_TOOL_CALLS:
+            raise RuntimeError(f"Gemini exceeded the {MAX_TOOL_CALLS}-call tool limit.")
+        tool_responses = []
+        for part in function_parts:
+            call = part.function_call
+            tool_responses.append(
+                types.Part.from_function_response(
+                    name=call.name,
+                    response={"result": run_tool(call.name, dict(call.args or {}))},
+                )
+            )
+            tool_budget[0] += 1
+        contents.append(types.Content(role="user", parts=tool_responses))
+
+
+def _retry_prompt(errors: list[str]) -> str:
+    listed = "\n".join(f"- {error}" for error in errors)
+    return f"""The application's validator rejected this brief:
+{listed}
+
+Rewrite the complete brief with the same sections, fixing exactly these problems. Keep every
+other rule. Return only the corrected brief."""
+
+
+def _parse_reasons(value: Any) -> list[str]:
+    return [reason.strip() for reason in str(value or "").split(";") if reason.strip()]
+
+
 def _create_brief_with_client(
     item: Mapping[str, Any],
     client: Any,
@@ -287,6 +363,7 @@ def _create_brief_with_client(
     model_year = int(_row_value(item, "model_year"))
     component = str(_row_value(item, "component"))
     month = _plain_date(_row_value(item, "month"))
+    reasons = _parse_reasons(item.get("top_reasons"))
     # A watchlist row for month M uses complaints received by the end of M (contracts.yml).
     cutoff = data_access.evidence_cutoff(month)
 
@@ -301,6 +378,7 @@ def _create_brief_with_client(
         "model_year": model_year,
         "component": component,
     }
+    reason_lines = "\n".join(f"- {reason}" for reason in reasons) or "- (none given)"
     prompt = f"""Prepare a brief for this watchlist row:
 {json.dumps(prompt_item, sort_keys=True)}
 
@@ -308,72 +386,55 @@ Watchlist month: {month}. Evidence cutoff (exclusive, end of that month): {cutof
 Severity counts computed from the complaint rows by the application:
 {json.dumps(severity, sort_keys=True)}
 
+The risk model's top reasons for flagging this row (from SHAP; check them against the complaints):
+{reason_lines}
+
 Use get_complaints for evidence and find_similar_recalls for history. The application enforces
 the target vehicle/component and cutoff even if a tool argument differs. Cite only ODINO IDs
 returned by get_complaints. If no matching complaint rows are returned, state that explicitly.
 """
-    contents = [
-        types.Content(role="user", parts=[types.Part(text=prompt)]),
-    ]
+    recall_scopes: list[str] = []
+
+    def run_tool(name: str, args: dict[str, Any]) -> Any:
+        if name == "get_complaints":
+            requested_limit = max(1, min(int(args.get("limit", COMPLAINT_LIMIT)), COMPLAINT_LIMIT))
+            return data_access.get_complaints(
+                make, model, model_year, component, cutoff, limit=requested_limit
+            )
+        if name == "find_similar_recalls":
+            result = data_access.find_similar_recalls(
+                make=make,
+                component=component,
+                keywords=args.get("keywords") or [],
+                before_date=cutoff,
+                limit=max(1, min(int(args.get("limit", 5)), 5)),
+            )
+            recall_scopes.append(result["scope"])
+            return result
+        raise RuntimeError(f"Gemini requested unknown tool {name!r}.")
+
+    contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
         tools=TOOL_CONFIG,
         temperature=0.2,
     )
-    tool_calls = 0
-
-    while True:
-        response = _generate_with_backoff(
-            client, model=model_id, contents=contents, config=config
-        )
-        candidates = getattr(response, "candidates", None) or []
-        if not candidates:
-            text = getattr(response, "text", None)
-            if text:
-                break
-            raise RuntimeError("Gemini returned no candidate or text.")
-        model_content = candidates[0].content
-        contents.append(model_content)
-        function_parts = [
-            part for part in model_content.parts if getattr(part, "function_call", None)
-        ]
-        if not function_parts:
-            text = getattr(response, "text", None) or "\n".join(
-                part.text for part in model_content.parts if getattr(part, "text", None)
-            )
-            if not text:
-                raise RuntimeError("Gemini returned an empty brief.")
-            break
-        if tool_calls + len(function_parts) > MAX_TOOL_CALLS:
-            raise RuntimeError(f"Gemini exceeded the {MAX_TOOL_CALLS}-call tool limit.")
-
-        tool_responses = []
-        for part in function_parts:
-            call = part.function_call
-            args = dict(call.args or {})
-            requested_limit = max(1, min(int(args.get("limit", 40)), 40))
-            if call.name == "get_complaints":
-                result = data_access.get_complaints(
-                    make, model, model_year, component, cutoff, limit=requested_limit
-                )
-            elif call.name == "find_similar_recalls":
-                result = data_access.find_similar_recalls(
-                    component=component,
-                    keywords=args.get("keywords") or [],
-                    before_date=cutoff,
-                    limit=max(1, min(int(args.get("limit", 5)), 5)),
-                )
-            else:
-                raise RuntimeError(f"Gemini requested unknown tool {call.name!r}.")
-            tool_responses.append(
-                types.Part.from_function_response(
-                    name=call.name,
-                    response={"result": result},
-                )
-            )
-            tool_calls += 1
-        contents.append(types.Content(role="user", parts=tool_responses))
-
+    tool_budget = [0]
     eligible = data_access.eligible_complaints(make, model, model_year, component, cutoff)
+
+    text = _converse(client, model_id, contents, config, run_tool, tool_budget)
     validation = validate_brief(text, eligible, cutoff)
-    return text.rstrip() + "\n", validation
+    first_errors = validation_errors(validation)
+    status = PASSED_FIRST_TRY
+    if first_errors:
+        # Self-correction: one retry with the validator's exact errors, then validate again.
+        contents.append(types.Content(role="user", parts=[types.Part(text=_retry_prompt(first_errors))]))
+        text = _converse(client, model_id, contents, config, run_tool, tool_budget)
+        validation = validate_brief(text, eligible, cutoff)
+        status = PASSED_AFTER_RETRY if not validation_errors(validation) else STILL_FAILING
+    return text.rstrip() + "\n", {
+        **validation,
+        "self_correction": status,
+        "first_try_errors": " | ".join(first_errors),
+        "recall_search": recall_scopes[-1] if recall_scopes else "not_called",
+    }

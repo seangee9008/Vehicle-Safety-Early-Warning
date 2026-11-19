@@ -20,6 +20,22 @@ Citations are valid when the ODINO is a complaint for that car + part received b
 cutoff. Common direct identifiers in complaint text (email, phone, VIN, URL, street address)
 are redacted before the text is sent to Gemini.
 
+### Agent v1
+
+- **Self-correction:** after a brief is written, the validator runs. If it fails (invalid citation,
+  uncited Evidence bullet, or Evidence bullets outside 3-6), the model gets one retry with the exact
+  errors, and the result is validated again. `validation.csv` records `self_correction`
+  (`passed_first_try` / `passed_after_retry` / `still_failing`) and `first_try_errors`. Retries
+  count toward `--max-requests`.
+- **Similar recalls:** `find_similar_recalls` searches the same make + component first and only
+  falls back to all makes if that make has none. The brief starts the section with the search used,
+  and `validation.csv` records it (`recall_search`).
+- **SHAP reasons:** the watchlist's `top_reasons` go into the prompt; the brief's "Watchlist
+  reasons check" says whether the complaints SUPPORT or CONTRADICT each reason, or whether it is
+  CONTEXT (such as vehicle age).
+- **Cache:** existing briefs are reused unless they fail the current validator, in which case they
+  are regenerated (never edited).
+
 Briefs for the sample CSV go to `reports/briefs/`; briefs for Justine's watchlist go to
 `reports/briefs/watchlist_<YYYY-MM>/`. Both are git-ignored.
 

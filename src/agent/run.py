@@ -23,7 +23,7 @@ from src.agent.brief import (
     set_request_budget,
 )
 from src.agent.data_access import ROOT
-from src.agent.validate import validate_brief
+from src.agent.validate import validate_brief, validation_errors
 
 WATCHLIST_COLUMNS = (
     "month",
@@ -36,6 +36,7 @@ WATCHLIST_COLUMNS = (
     "top_reasons",
 )
 VALIDATION_COLUMNS = (
+    "rank",
     "make",
     "model",
     "model_year",
@@ -43,6 +44,8 @@ VALIDATION_COLUMNS = (
     "month",
     "model_used",
     "source",
+    "self_correction",
+    "recall_search",
     "citations_total",
     "citations_valid",
     "citations_invalid",
@@ -50,6 +53,7 @@ VALIDATION_COLUMNS = (
     "bullets_without_citations",
     "invalid_odinos",
     "uncited_bullets",
+    "first_try_errors",
 )
 BRIEFS_DIR = ROOT / "reports" / "briefs"
 UNKNOWN_MODEL = "unknown"
@@ -136,12 +140,18 @@ def _previous_models(validation_path: Path) -> dict[tuple[str, ...], str]:
         }
 
 
-def _cached_model(path: Path, item: dict[str, str], previous: dict[tuple[str, ...], str]) -> str:
-    meta = _meta_path(path)
-    if meta.exists():
-        return json.loads(meta.read_text(encoding="utf-8")).get("model_used") or UNKNOWN_MODEL
+def _cached_meta(path: Path, item: dict[str, str], previous: dict[tuple[str, ...], str]) -> dict[str, str]:
+    """What we know about how a cached brief was written (model, self-correction, recall search)."""
+    meta_path = _meta_path(path)
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
     key = tuple(item[field] for field in ("make", "model", "model_year", "component"))
-    return previous.get(key, UNKNOWN_MODEL)
+    return {
+        "model_used": meta.get("model_used") or previous.get(key, UNKNOWN_MODEL),
+        # Briefs from agent v0 had no retry; one that passes now passed on its first try.
+        "self_correction": meta.get("self_correction", "passed_first_try"),
+        "first_try_errors": meta.get("first_try_errors", ""),
+        "recall_search": meta.get("recall_search", "v0 (any make)"),
+    }
 
 
 def _validate_cached(path: Path, item: dict[str, str]) -> dict[str, Any]:
@@ -185,21 +195,28 @@ def run(
             not_run.append(label)
             continue
         try:
+            validation = None
+            source = "generated"
             if path.exists() and not force:
-                validation = {
-                    **_validate_cached(path, item),
-                    "model_used": _cached_model(path, item, previous_models),
-                }
-                source = "cached"
-            else:
+                cached = _validate_cached(path, item)
+                if validation_errors(cached):
+                    # A cached brief that fails the current validator is regenerated, not edited.
+                    print(f"{label}: cached brief fails the validator "
+                          f"({'; '.join(validation_errors(cached))}); regenerating")
+                    source = "regenerated"
+                else:
+                    validation = {**cached, **_cached_meta(path, item, previous_models)}
+                    source = "cached"
+            if validation is None:
                 brief, validation = create_brief(item)
                 path.write_text(brief, encoding="utf-8")
+                meta = {key: validation[key] for key in
+                        ("model_used", "self_correction", "first_try_errors", "recall_search")}
                 _meta_path(path).write_text(
-                    json.dumps({"model_used": validation["model_used"]}, indent=2) + "\n",
-                    encoding="utf-8",
+                    json.dumps({**meta, "agent_version": "v1"}, indent=2) + "\n", encoding="utf-8"
                 )
-                source = "generated"
             result = {
+                "rank": item.get("rank", ""),
                 **{field: item[field] for field in ("make", "model", "model_year", "component", "month")},
                 "source": source,
                 **validation,
@@ -208,19 +225,11 @@ def run(
             print(
                 f"{label}: {source} {_display(path)} by {validation['model_used']} "
                 f"(citations {validation['citations_valid']}/{validation['citations_total']} valid, "
-                f"{validation['bullets_without_citations']} uncited evidence bullets)"
+                f"{validation['bullets_without_citations']} uncited, "
+                f"{validation['evidence_bullets']} evidence bullets, {validation['self_correction']})"
             )
-            if (
-                validation["citations_invalid"]
-                or validation["bullets_without_citations"]
-                or not 3 <= validation["evidence_bullets"] <= 6
-            ):
-                failures.append(
-                    f"{label}: brief failed citation/evidence checks "
-                    f"(invalid={validation['citations_invalid']}, "
-                    f"uncited={validation['bullets_without_citations']}, "
-                    f"evidence_bullets={validation['evidence_bullets']})"
-                )
+            if errors := validation_errors(validation):
+                failures.append(f"{label}: " + "; ".join(errors))
         except RequestBudgetExceeded as error:
             print(f"STOP {label}: {error}; remaining briefs left for the next run", file=sys.stderr)
             not_run.append(label)

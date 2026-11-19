@@ -3,7 +3,7 @@
 Rules, ownership and contracts are in [AGENTS.md](AGENTS.md). Update this file in the same branch
 as the work. Status is one of: Not started / In progress / In review / Done.
 
-Last updated: Nov 17.
+Last updated: Nov 18.
 
 | Task | Owner | Status | Branch or PR | Due |
 | --- | --- | --- | --- | --- |
@@ -13,12 +13,12 @@ Last updated: Nov 17.
 | Cleaned `stg.complaints` + `stg.recalls` (standardized make/model/component) | Angelina | Done | PR #4 | Nov 12 |
 | EDA + labels + split + complaint-count baseline | Justine | Done | PR #5 | Nov 12 |
 | `monthly_features` + LightGBM + backtest + watchlist + SHAP reasons | Justine | Done | PR #5 | Nov 19 |
-| Agent v0 + validator + cache + model fallback | Sean | In review | in the integration PR (close PR #1 when it merges) | Nov 12 |
-| Waymo constant-velocity baseline (go/no-go PASSED: FDE@8s 25.85 m overall, 28.72 vehicle, 2.98 pedestrian, 10.24 cyclist) | Sean | In review | merged into sean/integration | Nov 12 |
-| Project hub (AGENTS.md, STATUS.md, run.py) | Sean | In review | merged into sean/integration | Nov 12 |
-| Integration: contracts + sources layer + agent on real tables + run.py | Sean | In review | sean/integration (PR to main) | Nov 12 |
-| Agent on the real watchlist (Dec 2024 top 10: 78/78 citations valid, 8/10 pass all checks) | Sean | In review | sean/integration | Nov 18 |
-| Agent: vehicle-scoped similar-recall search; enforce 3-6 evidence bullets | Sean | Not started | | Nov 19 |
+| Final recall results: drop `UNKNOWN OR OTHER`, top-k, age vs complaints ablation, case studies | Justine | Done | PR #7 | Nov 19 |
+| Agent v0 + validator + cache + model fallback | Sean | Done | PR #6 | Nov 12 |
+| Waymo constant-velocity baseline (go/no-go PASSED: FDE@8s 25.85 m overall, 28.72 vehicle, 2.98 pedestrian, 10.24 cyclist) | Sean | Done | PR #6 | Nov 12 |
+| Project hub (AGENTS.md, STATUS.md, run.py) | Sean | Done | PR #6 | Nov 12 |
+| Integration: contracts + sources layer + agent on real tables + run.py | Sean | Done | PR #6 | Nov 12 |
+| Agent v1: self-correction retry, same-make recall search, SHAP reasons check, timeouts (Dec 2024 top 10: 81/81 citations valid, 10/10 pass) | Sean | In review | sean/agent-v1 | Nov 19 |
 | CI | Sean | Not started | | Nov 19 |
 | Dagster pipeline | Sean | Not started | | Nov 19 |
 | Streamlit demo skeleton | Sean | Not started | | Nov 19 |
@@ -28,7 +28,7 @@ Last updated: Nov 17.
 | Waymo PyTorch model | Sean | Not started | | Nov 24 |
 | Final demo | Sean | Not started | | Nov 24 |
 | Data quality tests + publish final tables to BigQuery | Angelina | Not started | | Nov 24 |
-| SHAP + final metrics | Justine | In progress | PR #5 has SHAP reasons | Nov 24 |
+| SHAP + final metrics | Justine | Done | PR #5, PR #7 | Nov 24 |
 | Write-up sections + presentation | Everyone | Not started | | Nov 24 |
 
 ## Tables (python run.py status)
@@ -46,40 +46,45 @@ steps (see `src/recall_model/README.md`). Until then `src/sources.py` uses place
 
 ## Results so far
 
-**Recall model (Justine, stg, test 2022-24, rerun Nov 17 matches her committed CSV):**
+**Recall model (Justine, PR #7, stg, test 2022-24; Sean's rerun Nov 18):**
 
-| Scorer | precision@20 | PR-AUC | median weeks of warning | catch rate (first recalls with complaints) |
+| Scorer | precision@20 | PR-AUC | median weeks of warning | recalls caught in top 20 / 50 / 100 |
 | --- | --- | --- | --- | --- |
-| LightGBM v1 | 10.3% (committed: 11.25%) | 0.027 | 23.7 (committed: 23.1) | 3.7% |
-| Complaint-count baseline | 8.75% | 0.013 | 35.1 | 1.7% |
+| LightGBM v1 | 11.4% (her write-up: 11.8%) | 0.031 | 22.7 | 63 / 117 / 185 (3.7% / 6.9% / 11.0%) |
+| Complaint-count baseline | 8.9% | 0.016 | 35.1 | 30 / 45 / 74 (1.8% / 2.7% / 4.4%) |
 
-Base rate (6-month label): 0.53% of all car + part months, 0.32% of rows the model ranks.
-No leakage signs: time-based split with refits on already-known labels, features use complaints
-received by month end, complaints after a car + part's first recall are dropped.
+- `UNKNOWN OR OTHER` is no longer scored (was 65 of 720 watchlist rows). No table or column changes.
+- Top 50 / 100: precision drops (9.6% / 8.2%) but the model catches about 2x / 3x more recalls.
+- Age vs complaints (precision@20 / PR-AUC / caught in top 20): age only 7.6% / 0.026 / 35,
+  complaints only 7.1% / 0.017 / 42, both (v1) 11.4% / 0.031 / 63. Neither alone comes close:
+  age picks the pool of new vehicles, complaints rank within it.
+- Base rate 0.3-0.5%, so a random top 20 catches about 0.1 recalls a month; v1 catches about 2.
+- No leakage signs (precision@20 well under 60%, median warning well under 40 weeks).
 
-**Agent on Justine's watchlist (2024-12, top 10, all real tables):**
+**Agent v1 on Justine's watchlist (2024-12, top 10, all real tables, cache on):**
 
-| Rank | Vehicle | Component | Model used | Citations valid | Evidence bullets | Uncited |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | Chevrolet Equinox EV 2024 | VISIBILITY | gemini-3.5-flash-lite | 7/7 | 4 | 0 |
-| 2 | Chevrolet Traverse 2024 | POWER TRAIN | gemini-3-flash-preview | 8/8 | 6 | 0 |
-| 3 | Kia Niro 2023 | UNKNOWN OR OTHER | gemini-3.5-flash-lite | 5/5 | 5 | 0 |
-| 4 | Chevrolet Blazer EV 2024 | ADAS AND STABILITY CONTROL | gemini-3-flash-preview | 6/6 | 5 | 0 |
-| 5 | Toyota Tacoma 2024 | POWER TRAIN | gemini-3.5-flash-lite | 10/10 | **10 (fails 3-6)** | 0 |
-| 6 | GMC Yukon 2021 | ENGINE AND ENGINE COOLING | gemini-3.5-flash-lite | 11/11 | 5 | 0 |
-| 7 | Chrysler Pacifica 2022 | POWER TRAIN | gemini-3.5-flash-lite | 11/11 | 5 | 0 |
-| 8 | Kia Sportage 2023 | ENGINE AND ENGINE COOLING | gemini-3.5-flash-lite | 8/8 | **8 (fails 3-6)** | 0 |
-| 9 | Ram 5500 2022 | POWER TRAIN | gemini-3.5-flash-lite | 6/6 | 6 | 0 |
-| 10 | Honda Accord 2024 | STEERING | gemini-3.5-flash-lite | 6/6 | 5 | 0 |
+| Rank | Vehicle | Component | Model used | Citations valid | Uncited | Evidence bullets | Self-correction |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Tesla Model Y 2025 | ADAS AND STABILITY CONTROL | gemini-3.6-flash | 11/11 | 0 | 5 | passed first try |
+| 2 | Tesla Model Y 2024 | ADAS AND STABILITY CONTROL | gemini-3.6-flash | 4/4 | 0 | 4 | passed first try |
+| 3 | Kia Carnival 2025 | ELECTRICAL SYSTEM | gemini-3.7-flash | 13/13 | 0 | 5 | passed first try |
+| 4 | Chevrolet Traverse 2024 | POWER TRAIN | gemini-3-flash-preview | 8/8 | 0 | 6 | passed first try (v0, cached) |
+| 5 | Cadillac Lyriq 2024 | ADAS AND STABILITY CONTROL | gemini-3.6-flash | 7/7 | 0 | 6 | passed first try |
+| 6 | Kia EV9 2024 | ADAS AND STABILITY CONTROL | gemini-3.6-flash | 13/13 | 0 | 5 | passed first try |
+| 7 | Chevrolet Blazer EV 2024 | ADAS AND STABILITY CONTROL | gemini-3-flash-preview | 6/6 | 0 | 5 | passed first try (v0, cached) |
+| 8 | Chevrolet Equinox 2025 | ELECTRICAL SYSTEM | gemini-3.5-flash-lite | 4/4 | 0 | 4 | passed first try |
+| 9 | Toyota Tacoma 2024 | POWER TRAIN | gemini-3.5-flash-lite | 10/10 | 0 | 5 | passed first try (regenerated) |
+| 10 | Jeep Grand Cherokee 4xe 2024 | ENGINE AND ENGINE COOLING | gemini-3.5-flash-lite | 5/5 | 0 | 5 | passed first try |
+| **Total** | | | | **81/81** | **0** | **49** | **10 first try, 0 after retry, 0 failing** |
 
-- 78/78 citations valid, no uncited bullets. 8/10 pass every check; Tacoma and Sportage have too
-  many evidence bullets (the model ignored the 3-6 instruction).
-- The first Tacoma brief cited `ODINO 1160969`, a 7-digit ID that doesn't exist. The validator
-  caught it; the brief was regenerated from scratch (not edited) and the new one is 10/10 valid.
-- `gemini-3.6-flash` returned 503/429 all day; the fallback wrote every brief with other free
-  Flash models. Example: [docs/example_brief_real.md](docs/example_brief_real.md) (rank 7).
-- 9/10 briefs say "none found" for similar recalls: the search matches the part across every make,
-  so the model rightly ignores the results. Next fix: scope it to the make (and model).
+- 10/10 pass every check. Self-correction was not needed this run (it is covered by mocked tests).
+- Tacoma's cached v0 brief had 10 evidence bullets; the run regenerated it (5 bullets).
+- Traverse and Blazer EV are cached v0 briefs that still pass, so they were kept; they lack the
+  reasons check and searched recalls across all makes. `--force` regenerates them.
+- 8 v1 briefs used the same-make recall search; none needed the all-makes fallback.
+- Gemini: about 54 requests over three runs (under the 60 cap). One call hung for 2 hours (now a
+  120 s timeout) and five got `504 DEADLINE_EXCEEDED` (now retried, then the next model).
+- Example: [docs/example_brief_real.md](docs/example_brief_real.md) (Kia EV9, rank 6).
 
 ## Decisions
 
@@ -97,14 +102,8 @@ received by month end, complaints after a car + part's first recall are dropped.
 ## Requested from teammates
 
 **Justine**
-- **Filter `UNKNOWN OR OTHER`:** 65 of 720 watchlist rows (9%) are this catch-all part, including
-  rank 3 in 2024-12. It isn't actionable for an investigation. Leave it out of the watchlist (or the
-  model)?
-- **Top 50 / top 100:** precision@20 is one point on the curve. Precision and catch rate at top 50
-  and top 100 per month would show whether a bigger watchlist catches meaningfully more recalls.
-- **Vehicle age vs complaints:** `vehicle_age` carries about two thirds of the model's gain, and many
-  top reasons are "vehicle is under a year old". A comparison of an age-only model and a
-  complaints-only model against v1 would show how much the complaint signal adds.
+- **Commit `reports/recall_ablation_stg.csv`:** the write-up cites it, but it is not in the repo.
+- (Done in PR #7: filter `UNKNOWN OR OTHER`, top 50 / top 100, age vs complaints.)
 - (Smaller) `main.monthly_features` and `main.watchlist` hold whichever `--source` ran last. A
   `source` column on `main.monthly_features` (the watchlist has one) would let the contract check
   refuse a raw-source table.
