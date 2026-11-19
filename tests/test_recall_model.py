@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.recall_model.model import KEYS, known_by, warning_weeks
+from src.recall_model.model import KEYS, flags, known_by, warning_weeks
 from src.recall_model.watchlist import COLUMNS, EXTRA, build_watchlist
 
 CELL = {"make": "FORD", "model": "F-150", "model_year": 2015, "component": "AIR BAGS"}
@@ -10,6 +10,14 @@ def test_known_by_keeps_only_closed_labels():
     df = pd.DataFrame({"month": pd.to_datetime(["2019-05-01", "2019-06-01", "2019-07-01"])})
     kept = known_by(df, pd.Timestamp("2019-12-01"), 6)
     assert list(kept["month"].dt.month) == [5, 6]
+
+
+def test_flags_takes_list_size():
+    pred = pd.DataFrame({"month": pd.to_datetime(["2022-01-01"] * 5 + ["2022-02-01"] * 5),
+                         "score": [0.1, 0.5, 0.3, 0.9, 0.2] * 2})
+    top = flags(pred, "score", top=2)
+    assert len(top) == 4
+    assert list(top["score"][:2]) == [0.9, 0.5]
 
 
 def test_warning_weeks_uses_first_flag_before_recall():
