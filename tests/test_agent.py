@@ -82,9 +82,27 @@ def test_similar_recalls_are_strictly_before_cutoff(tmp_path, use_db):
         raw_recall("18V000002", "20180901", defect="On cutoff date."),
     ]))
 
-    recalls = data_access.find_similar_recalls("AIR BAGS", ["inflator"], "2018-09-01")
+    result = data_access.find_similar_recalls("FORD", "AIR BAGS", ["inflator"], "2018-09-01")
 
-    assert [recall["camp_no"] for recall in recalls] == ["18V000001"]
+    assert result["scope"] == "same_make"
+    assert [recall["camp_no"] for recall in result["recalls"]] == ["18V000001"]
+
+
+def test_similar_recalls_try_same_make_first(tmp_path, use_db):
+    use_db(make_db(tmp_path / "nhtsa.duckdb", recalls=[
+        raw_recall("18V000001", "20180301", make="FORD"),
+        raw_recall("18V000009", "20180801", make="TOYOTA", model="CAMRY"),
+    ]))
+
+    same = data_access.find_similar_recalls("FORD", "AIR BAGS", [], "2018-09-01")
+    other = data_access.find_similar_recalls("HONDA", "AIR BAGS", [], "2018-09-01")
+
+    # FORD has its own air bag recall, so the newer TOYOTA one is not used
+    assert same["scope"] == "same_make"
+    assert [r["camp_no"] for r in same["recalls"]] == ["18V000001"]
+    # HONDA has none, so the search falls back to every make
+    assert other["scope"] == "all_makes"
+    assert [r["camp_no"] for r in other["recalls"]] == ["18V000009", "18V000001"]
 
 
 def test_validator_rejects_fake_id_and_uncited_bullet():
@@ -165,100 +183,158 @@ def test_watchlist_fixture_matches_contract_3_columns():
     assert len(rows) == 5
 
 
-def test_gemini_function_calling_is_mocked(monkeypatch):
-    complaint = {
-        "odi_no": "12345678",
-        "ldate": "2018-08-31",
-        "is_crash": 1,
-        "is_fire": 0,
-        "injured_count": 1,
-        "deaths_count": 0,
-    }
-    requested_scopes = []
+COMPLAINT = {
+    "odi_no": "12345678",
+    "ldate": "2018-08-31",
+    "is_crash": 1,
+    "is_fire": 0,
+    "injured_count": 1,
+    "deaths_count": 0,
+}
+ITEM = {
+    "month": "2018-09-01",
+    "make": "FORD",
+    "model": "FUSION",
+    "model_year": "2010",
+    "component": "AIR BAGS",
+    "score": "0.98",
+    "rank": "1",
+    "top_reasons": "vehicle is 8 years old; 3 complaints in the last 3 months",
+}
 
-    def fake_get_complaints(*args, **kwargs):
-        requested_scopes.append((args, kwargs))
-        return [complaint]
 
-    def fake_severity_counts(rows):
-        assert rows == [complaint]
-        return {"crashes": 1, "fires": 0, "injuries": 1, "deaths": 0}
-
-    monkeypatch.setattr(data_access, "get_complaints", fake_get_complaints)
-    monkeypatch.setattr(data_access, "eligible_complaints", lambda *a, **k: [complaint])
-    monkeypatch.setattr(data_access, "severity_counts", fake_severity_counts)
-    function_part = SimpleNamespace(
-        function_call=SimpleNamespace(
-            name="get_complaints",
-            args={
-                "make": "OTHER",
-                "model": "OTHER",
-                "model_year": 2010,
-                "component": "OTHER",
-                "before_date": "2099-01-01",
-            },
-        )
-    )
-    final_text = """## Failure pattern
-An air bag complaint described a warning light. One complaint is available.
+def _brief(bullets):
+    evidence = "\n".join(f"- {bullet}" for bullet in bullets)
+    return f"""## Failure pattern
+An air bag warning light was reported.
 ## Severity
 1 crash, 0 fires, 1 injury, 0 deaths.
 ## Evidence
-- Airbag warning light [ODINO 12345678].
+{evidence}
+## Watchlist reasons check
+- vehicle is 8 years old: CONTEXT
 ## Similar past recalls
-none found
+Search: same make (FORD)
+none relevant
 ## Suggested next step
 Review the complaint details.
 """
-    responses = [
-        SimpleNamespace(
-            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[function_part]))],
-            text=None,
-        ),
-        SimpleNamespace(
-            candidates=[
-                SimpleNamespace(
-                    content=SimpleNamespace(
-                        parts=[SimpleNamespace(function_call=None, text=final_text)]
-                    )
-                )
-            ],
-            text=final_text,
-        ),
-    ]
 
-    class FakeModels:
-        def generate_content(self, **kwargs):
-            assert kwargs["model"] == "mock-flash"
-            return responses.pop(0)
 
-    client = SimpleNamespace(models=FakeModels())
-    brief, validation = create_brief(
-        {
-            "month": "2018-09-01",
-            "make": "FORD",
-            "model": "FUSION",
-            "model_year": "2010",
-            "component": "AIR BAGS",
-            "score": "0.98",
-            "rank": "1",
-            "top_reasons": "complaints up 3x in 3 months",
-        },
-        client=client,
-        model_name="mock-flash",
+VALID_BRIEF = _brief(["Warning light [ODINO 12345678]."] * 3)
+TOO_FEW_BULLETS = _brief(["Warning light [ODINO 12345678]."])
+FAKE_ID_BRIEF = _brief(["Warning light [ODINO 12345678]."] * 2 + ["Made up [ODINO 1234567]."])
+
+
+def _text(text):
+    part = SimpleNamespace(function_call=None, text=text)
+    return SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))], text=text)
+
+
+def _call(name, **args):
+    part = SimpleNamespace(function_call=SimpleNamespace(name=name, args=args))
+    return SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))], text=None)
+
+
+class ScriptedModels:
+    """Returns the scripted responses in order and records each request's contents."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.requests = []
+
+    def generate_content(self, **kwargs):
+        assert kwargs["model"] == "mock-flash"
+        self.requests.append(list(kwargs["contents"]))
+        return self.responses.pop(0)
+
+
+@pytest.fixture
+def mocked_data(monkeypatch):
+    calls = {"get_complaints": [], "find_similar_recalls": []}
+
+    def fake_get_complaints(*args, **kwargs):
+        calls["get_complaints"].append(args)
+        return [COMPLAINT]
+
+    def fake_recalls(**kwargs):
+        calls["find_similar_recalls"].append(kwargs)
+        return {"scope": "same_make", "make": "FORD", "recalls": []}
+
+    monkeypatch.setattr(data_access, "get_complaints", fake_get_complaints)
+    monkeypatch.setattr(data_access, "eligible_complaints", lambda *a, **k: [COMPLAINT])
+    monkeypatch.setattr(data_access, "find_similar_recalls", fake_recalls)
+    return calls
+
+
+def _prompt_text(request):
+    return request[0].parts[0].text
+
+
+def test_gemini_function_calling_is_mocked(mocked_data):
+    models = ScriptedModels(
+        _call("get_complaints", make="OTHER", model="OTHER", model_year=2010,
+              component="OTHER", before_date="2099-01-01"),
+        _call("find_similar_recalls", component="OTHER", keywords=["warning light"]),
+        _text(VALID_BRIEF),
     )
+
+    brief, validation = create_brief(ITEM, client=SimpleNamespace(models=models),
+                                     model_name="mock-flash")
 
     assert "ODINO 12345678" in brief
-    assert validation["citations_valid"] == 1
-    assert validation["citations_invalid"] == 0
-    # month 2018-09 -> evidence through the end of September
-    assert requested_scopes[0][0][:5] == (
-        "FORD",
-        "FUSION",
-        2010,
-        "AIR BAGS",
-        "2018-10-01",
-    )
+    assert validation["citations_valid"] == 3
+    assert validation["self_correction"] == "passed_first_try"
+    assert validation["recall_search"] == "same_make"
+    # the app, not the model, decides the scope: month 2018-09 -> evidence through September
+    assert mocked_data["get_complaints"][-1][:5] == ("FORD", "FUSION", 2010, "AIR BAGS", "2018-10-01")
+    assert mocked_data["find_similar_recalls"][0]["make"] == "FORD"
+    assert mocked_data["find_similar_recalls"][0]["component"] == "AIR BAGS"
+
+
+def test_no_retry_when_first_brief_passes(mocked_data):
+    models = ScriptedModels(_text(VALID_BRIEF))
+
+    _, validation = create_brief(ITEM, client=SimpleNamespace(models=models), model_name="mock-flash")
+
+    assert len(models.requests) == 1
+    assert validation["self_correction"] == "passed_first_try"
+    assert validation["first_try_errors"] == ""
+
+
+def test_one_retry_with_validator_errors_fixes_brief(mocked_data):
+    models = ScriptedModels(_text(FAKE_ID_BRIEF), _text(VALID_BRIEF))
+
+    brief, validation = create_brief(ITEM, client=SimpleNamespace(models=models),
+                                     model_name="mock-flash")
+
+    assert len(models.requests) == 2
+    retry_message = models.requests[1][-1].parts[0].text
+    assert "ODINO 1234567" in retry_message  # the exact invalid ID is sent back
+    assert "validator rejected" in retry_message
+    assert brief == VALID_BRIEF
+    assert validation["self_correction"] == "passed_after_retry"
+    assert "ODINO 1234567" in validation["first_try_errors"]
+
+
+def test_only_one_retry_then_still_failing(mocked_data):
+    models = ScriptedModels(_text(TOO_FEW_BULLETS), _text(TOO_FEW_BULLETS))
+
+    _, validation = create_brief(ITEM, client=SimpleNamespace(models=models), model_name="mock-flash")
+
+    assert len(models.requests) == 2  # no second retry
+    assert validation["self_correction"] == "still_failing"
+    assert "has 1 bullets; it must have 3-6" in validation["first_try_errors"]
+
+
+def test_shap_reasons_are_given_to_the_model(mocked_data):
+    models = ScriptedModels(_text(VALID_BRIEF))
+
+    create_brief(ITEM, client=SimpleNamespace(models=models), model_name="mock-flash")
+
+    prompt = _prompt_text(models.requests[0])
+    assert "- vehicle is 8 years old" in prompt
+    assert "- 3 complaints in the last 3 months" in prompt
 
 
 def test_rate_limit_retries_with_backoff(monkeypatch):
@@ -314,10 +390,9 @@ def test_falls_back_to_next_flash_model_on_429_or_503(monkeypatch, code):
 
     monkeypatch.setattr(agent_brief.time, "sleep", lambda _: None)
     monkeypatch.delenv("GEMINI_FALLBACK_MODELS", raising=False)
-    monkeypatch.setattr(data_access, "get_complaints", lambda *a, **k: [])
-    monkeypatch.setattr(data_access, "eligible_complaints", lambda *a, **k: [])
-    monkeypatch.setattr(data_access, "severity_counts", lambda rows: {})
-    text = "## Evidence\nnone\n"
+    monkeypatch.setattr(data_access, "get_complaints", lambda *a, **k: [COMPLAINT])
+    monkeypatch.setattr(data_access, "eligible_complaints", lambda *a, **k: [COMPLAINT])
+    text = VALID_BRIEF
     calls = []
 
     class FakeModels:
@@ -384,26 +459,29 @@ def test_non_retryable_error_does_not_fall_back(monkeypatch):
         )
 
 
-def test_run_skips_existing_brief_unless_forced(tmp_path, monkeypatch):
+def _fake_run_setup(tmp_path, monkeypatch, brief):
     from src.agent import run as agent_run
 
     monkeypatch.setattr(agent_run, "BRIEFS_DIR", tmp_path)
-    monkeypatch.setattr(
-        agent_run.data_access,
-        "eligible_complaints",
-        lambda *a, **k: [{"odi_no": "11111111", "ldate": "2018-08-31"}],
-    )
-    brief = "## Evidence\n- a [ODINO 11111111]\n- b [ODINO 11111111]\n- c [ODINO 11111111]\n"
+    eligible = [{"odi_no": "11111111", "ldate": "2018-08-31"}]
+    monkeypatch.setattr(agent_run.data_access, "eligible_complaints", lambda *a, **k: eligible)
     generated = []
 
     def fake_create_brief(item):
         generated.append(item["make"])
-        return brief, {**validate_brief(brief, [{"odino": "11111111",
-                                                "received_date": "2018-08-31"}],
-                                        "2018-09-01"), "model_used": "mock-flash"}
+        return brief, {**validate_brief(brief, eligible, "2018-10-01"), "model_used": "mock-flash",
+                       "self_correction": "passed_after_retry", "first_try_errors": "x",
+                       "recall_search": "same_make"}
 
     monkeypatch.setattr(agent_run, "create_brief", fake_create_brief)
-    watchlist = ROOT / "src" / "agent" / "fixtures" / "watchlist_sample.csv"
+    return agent_run, generated, ROOT / "src" / "agent" / "fixtures" / "watchlist_sample.csv"
+
+
+GOOD_RUN_BRIEF = "## Evidence\n- a [ODINO 11111111]\n- b [ODINO 11111111]\n- c [ODINO 11111111]\n"
+
+
+def test_run_skips_existing_brief_unless_forced(tmp_path, monkeypatch):
+    agent_run, generated, watchlist = _fake_run_setup(tmp_path, monkeypatch, GOOD_RUN_BRIEF)
 
     agent_run.run(watchlist, 1)
     agent_run.run(watchlist, 1)
@@ -412,9 +490,25 @@ def test_run_skips_existing_brief_unless_forced(tmp_path, monkeypatch):
         row = next(csv.DictReader(file))
     assert row["source"] == "cached"
     assert row["model_used"] == "mock-flash"
+    assert row["self_correction"] == "passed_after_retry"  # kept from the .meta.json
+    assert row["recall_search"] == "same_make"
+    assert row["rank"] == "1"
 
     agent_run.run(watchlist, 1, force=True)
     assert generated == ["FORD", "FORD"]
+
+
+def test_run_regenerates_cached_brief_that_fails_validator(tmp_path, monkeypatch):
+    agent_run, generated, watchlist = _fake_run_setup(tmp_path, monkeypatch, GOOD_RUN_BRIEF)
+    too_many = "## Evidence\n" + "- x [ODINO 11111111]\n" * 8
+    (tmp_path / "ford_fusion_2010_air_bags.md").write_text(too_many)
+
+    agent_run.run(watchlist, 1)
+
+    assert generated == ["FORD"]
+    assert (tmp_path / "ford_fusion_2010_air_bags.md").read_text() == GOOD_RUN_BRIEF
+    with (tmp_path / "validation.csv").open(newline="") as file:
+        assert next(csv.DictReader(file))["source"] == "regenerated"
 
 
 def test_request_budget_stops_calls(monkeypatch):

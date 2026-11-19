@@ -164,36 +164,67 @@ def eligible_complaints(
     return _fetch_dicts(sql, _vehicle_params(make, model, model_year, component, before_date))
 
 
+_COMPONENT_MATCH = """
+    (component = upper(trim(?)) OR component = upper(trim(?))
+     OR component LIKE upper(trim(?)) || ' %')
+"""
+SAME_MAKE = "same_make"
+ALL_MAKES = "all_makes"
+
+
 def find_similar_recalls(
+    make: str,
     component: str,
     keywords: Sequence[str] | None,
     before_date: str | date | datetime,
     limit: int = 5,
-) -> list[dict[str, Any]]:
-    """Find recalls with matching component/keywords announced before a date."""
-    terms = [term.strip() for term in (keywords or ()) if term and term.strip()]
-    terms.extend(part.strip() for part in component.split(":") if part.strip())
-    terms = list(dict.fromkeys(terms))
-    if not terms:
-        raise ValueError("component or keywords must contain a search term")
-    where_terms = " OR ".join(
-        "upper(search_text) LIKE '%' || upper(?) || '%'" for _ in terms
-    )
-    sql = f"""
-        WITH recalls AS (
-            SELECT *, coalesce(component, '') || ' ' || coalesce(defect_summary, '') || ' '
-                      || coalesce(consequence_summary, '') AS search_text
-            FROM ({_sql("recalls")})
-        )
-        SELECT DISTINCT {", ".join(RECALL_OUTPUT_COLUMNS)}
-        FROM recalls
-        WHERE recall_date IS NOT NULL
-          AND recall_date < CAST(? AS DATE)
-          AND ({where_terms})
-        ORDER BY recall_date DESC, camp_no
-        LIMIT ?
+) -> dict[str, Any]:
+    """Earlier recalls for the same part: same make first, all makes only if none.
+
+    Returns ``{"scope": "same_make" | "all_makes", "make": ..., "recalls": [...]}``. Within a
+    scope, recalls whose text mentions a keyword come first, then the most recent.
     """
-    return _fetch_dicts(sql, [_before_date(before_date), *terms, _limit(limit)])
+    root = component.split(":", maxsplit=1)[0].strip()
+    terms = [term.strip() for term in (keywords or ()) if term and term.strip()]
+    keyword_hit = (
+        " OR ".join("upper(search_text) LIKE '%' || upper(?) || '%'" for _ in terms)
+        if terms else "FALSE"
+    )
+    columns = ", ".join(RECALL_OUTPUT_COLUMNS)
+
+    def search(same_make: bool) -> list[dict[str, Any]]:
+        make_filter = "AND make = upper(trim(?))" if same_make else ""
+        sql = f"""
+            WITH recalls AS (
+                SELECT *, coalesce(defect_summary, '') || ' '
+                          || coalesce(consequence_summary, '') AS search_text
+                FROM ({_sql("recalls")})
+            ),
+            matched AS (
+                SELECT {columns}, left(any_value(defect_summary), 300) AS defect_summary,
+                       bool_or({keyword_hit}) AS keyword_match
+                FROM recalls
+                WHERE recall_date IS NOT NULL
+                  AND recall_date < CAST(? AS DATE)
+                  AND {_COMPONENT_MATCH}
+                  {make_filter}
+                GROUP BY ALL
+            )
+            SELECT {columns}, defect_summary, keyword_match
+            FROM matched
+            ORDER BY keyword_match DESC, recall_date DESC, camp_no, model, model_year
+            LIMIT ?
+        """
+        params: list[Any] = [*terms, _before_date(before_date), component, root, root]
+        if same_make:
+            params.append(make)
+        params.append(_limit(limit))
+        return _fetch_dicts(sql, params)
+
+    same = search(same_make=True)
+    if same:
+        return {"scope": SAME_MAKE, "make": make.upper(), "recalls": same}
+    return {"scope": ALL_MAKES, "make": make.upper(), "recalls": search(same_make=False)}
 
 
 def _flag(value: Any) -> bool:

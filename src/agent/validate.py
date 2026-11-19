@@ -91,3 +91,31 @@ def validate_brief(
         "invalid_odinos": ";".join(invalid_ids),
         "uncited_bullets": " | ".join(uncited_bullets),
     }
+
+
+MIN_EVIDENCE_BULLETS = 3
+MAX_EVIDENCE_BULLETS = 6
+
+
+def validation_errors(validation: Mapping[str, Any]) -> list[str]:
+    """Exact, human-readable reasons a brief fails; empty when it passes."""
+    errors = []
+    if validation["citations_invalid"]:
+        errors.append(
+            f"{validation['citations_invalid']} citation(s) are not complaints for this vehicle "
+            f"and component received before the cutoff: "
+            + ", ".join(f"ODINO {odino}" for odino in validation["invalid_odinos"].split(";") if odino)
+            + ". Cite only ODINO IDs returned by get_complaints, copied digit for digit."
+        )
+    if validation["bullets_without_citations"]:
+        errors.append(
+            f"{validation['bullets_without_citations']} Evidence bullet(s) have no [ODINO ...] "
+            f"citation: {validation['uncited_bullets']}"
+        )
+    bullets = validation["evidence_bullets"]
+    if not MIN_EVIDENCE_BULLETS <= bullets <= MAX_EVIDENCE_BULLETS:
+        errors.append(
+            f"The Evidence section has {bullets} bullets; it must have "
+            f"{MIN_EVIDENCE_BULLETS}-{MAX_EVIDENCE_BULLETS}. Merge or drop bullets as needed."
+        )
+    return errors
