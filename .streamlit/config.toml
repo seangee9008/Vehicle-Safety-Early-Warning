@@ -1,0 +1,6 @@
+# Streamlit settings for the demo (python run.py demo).
+[client]
+toolbarMode = "viewer"   # no Deploy button / developer menu while presenting
+
+[browser]
+gatherUsageStats = false
