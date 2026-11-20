@@ -3,7 +3,7 @@
 Rules, ownership and contracts are in [AGENTS.md](AGENTS.md). Update this file in the same branch
 as the work. Status is one of: Not started / In progress / In review / Done.
 
-Last updated: Nov 19.
+Last updated: Nov 20.
 
 | Task | Owner | Status | Branch or PR | Due |
 | --- | --- | --- | --- | --- |
@@ -22,12 +22,12 @@ Last updated: Nov 19.
 | Label audit + investigations experiment (read-only, Justine's code untouched) | Sean | Done | PR #9, PR #11 | Nov 20 |
 | CI: GitHub Actions, ruff + offline pytest on every PR | Sean | Done | PR #12 | Nov 19 |
 | Pipeline: `python run.py pipeline` / `all` (replaces Dagster, see Decisions) | Sean | Done | PR #12 | Nov 19 |
-| Streamlit demo (`app/`, reads BigQuery via `src/bq_reader.py`) | Angelina, Justine | In progress | | Nov 24 |
+| Streamlit demo (`app/`, 6 tabs, BigQuery + local fallback, AppTest tests, slide screenshots) | Sean | In review | sean/demo | Nov 24 |
 | Waymo: more shards + distance-adjusted error (2 training shards; FDE@8s per metre travelled in reports/waymo_model_vs_baseline.csv) | Sean | Done | PR #10, PR #11 | Nov 19 |
 | dbt staging models + tests (`stg_complaints`, `stg_recalls`) | Angelina | Not started | | Nov 19 |
 | dbt intermediate models + snapshots | Angelina | Not started | | Nov 19 |
 | Waymo PyTorch model: v2 kept (MLP K=6, + moving non-target agents, label smoothing 0.1, temperature scaling; chosen on held-out training scenarios). validation_00000 FDE@8s best guess 18.97 m vs CV 25.85 m (-27%), minFDE 7.32 m (-72%). v1 was 18.32 m on test; v1 vs v2 in reports/waymo_v1_vs_v2.csv | Sean | Done | PR #10, PR #11 | Nov 24 |
-| Final demo (presented) | Angelina, Justine | In progress | | Nov 24 |
+| Final demo (presented Monday) | Everyone | In progress | | Nov 24 |
 | BigQuery publish: 7 final tables + publish_log + 2 views (sandbox, 1.67 MB) + read helper | Sean | Done | PR #10, PR #11 | Nov 20 |
 | Data quality tests | Angelina | Not started | | Nov 24 |
 | SHAP + final metrics | Justine | Done | PR #5, PR #7 | Nov 24 |

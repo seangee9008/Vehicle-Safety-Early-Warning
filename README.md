@@ -58,7 +58,7 @@ then `python run.py data` to download NHTSA data and load DuckDB).
 | `python run.py check` | Setup check, then `pytest -q`, then ruff (the same tests and lint CI runs on every PR) |
 | `python run.py pipeline` | Rebuild everything in order: cleaning, labels, features, model, watchlist, results, contracts, label audit, agent briefs (cache on, at most 60 Gemini requests), Waymo evaluation and demo examples, BigQuery plan. `--dry-run` lists the steps |
 | `python run.py publish` | BigQuery publish plan (dry run); `--publish` uploads the final small tables to the sandbox and verifies them. Reading them: [CONTRACTS.md](CONTRACTS.md#reading-from-bigquery) |
-| `python run.py demo` | Streamlit demo (`app/`, in progress) |
+| `python run.py demo` | Streamlit demo: overview, watchlist, briefs, model results, trajectories, about. Reads BigQuery, falls back to local files ([app/README.md](app/README.md)) |
 
 `python run.py all` runs `check` then `pipeline`. Every command is listed in [AGENTS.md](AGENTS.md#commands).
 
@@ -86,7 +86,7 @@ src/
   bq_reader.py            read the published tables (for the demo)
   nhtsa_schemas.py        column names for NHTSA files
   waymo_reader.py         read Waymo scenarios in plain Python (no TensorFlow)
-app/                      Streamlit demo (in progress)
+app/                      Streamlit demo (BigQuery, local fallback)
 contracts/contracts.yml   machine-readable hand-off contracts (CONTRACTS.md)
 dbt/                      dbt project on the NHTSA tables (sources wired)
 docs/                     example agent briefs
