@@ -61,11 +61,50 @@ def shoot(page, args, file_name: str) -> None:
     print(f"wrote {path.relative_to(ROOT)}")
 
 
+HEADER_MODES = [("live", None), ("saved", "snapshot"), ("final", "final")]
+
+
+def headers(args) -> None:
+    """The page header in each data mode: reports/figures/demo_mode_<mode>.png."""
+    from playwright.sync_api import sync_playwright
+
+    for name, force in HEADER_MODES:
+        port = free_port()
+        env = {k: v for k, v in os.environ.items() if k != "FORCE_MODE"}
+        if force:
+            env["FORCE_MODE"] = force
+        server = subprocess.Popen(
+            [sys.executable, "-m", "streamlit", "run", "app/streamlit_app.py", "--server.headless=true",
+             f"--server.port={port}", "--browser.gatherUsageStats=false"],
+            cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            url = f"http://127.0.0.1:{port}"
+            wait_for(url)
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch()
+                page = browser.new_page(viewport={"width": args.width, "height": args.height}, device_scale_factor=2)
+                page.goto(url, wait_until="networkidle")
+                page.get_by_role("tab", name="Overview").wait_for(timeout=120_000)
+                page.wait_for_timeout(2500)
+                page.mouse.move(2, 2)
+                path = OUT / f"demo_mode_{name}.png"
+                page.screenshot(path=str(path), clip={"x": 0, "y": 0, "width": args.width, "height": 330})
+                print(f"wrote {path.relative_to(ROOT)}")
+                browser.close()
+        finally:
+            server.terminate()
+            server.wait(timeout=10)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--width", type=int, default=1440)
     parser.add_argument("--height", type=int, default=900)
+    parser.add_argument("--headers", action="store_true", help="only the header in live / saved / final mode")
     args = parser.parse_args()
+    if args.headers:
+        headers(args)
+        return 0
     from playwright.sync_api import sync_playwright
 
     port = free_port()

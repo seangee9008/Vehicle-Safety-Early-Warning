@@ -1,5 +1,9 @@
 # Vehicle Safety Early Warning
 
+> **Live demo:** _link goes here once deployed on Streamlit Community Cloud ([DEPLOY.md](DEPLOY.md))_
+>
+> **Data status:** live from BigQuery until the free sandbox tables expire (the app shows the date), then a final saved copy with a banner saying when live data ended.
+>
 > **Start here:** `python run.py check`
 >
 > - [AGENTS.md](AGENTS.md): rules, ownership, data contracts and commands (the source of truth for people and AI assistants).
@@ -57,6 +61,7 @@ then `python run.py data` to download NHTSA data and load DuckDB).
 | --- | --- |
 | `python run.py check` | Setup check, then `pytest -q`, then ruff (the same tests and lint CI runs on every PR) |
 | `python run.py pipeline` | Rebuild everything in order: cleaning, labels, features, model, watchlist, results, contracts, label audit, agent briefs (cache on, at most 60 Gemini requests), Waymo evaluation and demo examples, BigQuery plan. `--dry-run` lists the steps |
+| `python run.py snapshot` | Save every table the demo reads from BigQuery into `app/snapshot/` (`--final`: the app uses it for good). See [DEPLOY.md](DEPLOY.md) |
 | `python run.py publish` | BigQuery publish plan (dry run); `--publish` uploads the final small tables to the sandbox and verifies them. Reading them: [CONTRACTS.md](CONTRACTS.md#reading-from-bigquery) |
 | `python run.py demo` | Streamlit demo: overview, watchlist, briefs, model results, trajectories, about. Reads BigQuery, falls back to local files ([app/README.md](app/README.md)) |
 
