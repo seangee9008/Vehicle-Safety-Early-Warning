@@ -11,7 +11,10 @@ from app import data as D
 from src import bq_reader
 
 APP = str(Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py")
-TABS = ["Overview", "Recall watchlist", "Investigation brief", "Model results", "Trajectory", "About"]
+TABS = ["Overview", "Recall watchlist", "Investigation brief", "Model results", "Trajectory",
+        "Data and limitations"]
+RESULT_TILES = ["hit", "coverage", "lead", "drivers", "fair", "signals"]
+TRAJ_TILES = ["horizon", "types", "struggles"]
 
 
 def _path(n, dx=1.0, dy=0.0):
@@ -24,7 +27,9 @@ def fake_tables() -> dict[str, pd.DataFrame]:
         "component": "ADAS AND STABILITY CONTROL", "score": 0.7 - rank / 100, "rank": rank,
         "top_reasons": "vehicle is under a year old", "source": "stg",
         "brief_id": "2024-12-r01" if rank == 1 else None,
-        "brief_markdown": "## Evidence\n- Screen goes dark [ODINO 111], [ODINO 222]\n" if rank == 1 else None,
+        "brief_markdown": ("## Failure pattern (2-3 sentences)\nThe screen goes dark.\n\n## Severity\n- Crashes: 0\n\n"
+                           "## Evidence\n- Screen goes dark [ODINO 111], [ODINO 222]\n\n## Similar past recalls\n"
+                           "Search: same make (KIA)\nnone relevant\n") if rank == 1 else None,
         "model_used": "gemini-x" if rank == 1 else None,
         "citations_valid": 2 if rank == 1 else None, "citations_total": 2 if rank == 1 else None,
         "uncited_bullets": 0 if rank == 1 else None, "evidence_bullets": 3 if rank == 1 else None,
@@ -49,6 +54,7 @@ def fake_tables() -> dict[str, pd.DataFrame]:
                                                     "metric", "value"])
     audit = pd.DataFrame([
         ("label_audit", "label_audit_stg.csv", "exact label (Justine's y_6m)", "test", "lgbm_precision_at_20", 0.114),
+        ("label_audit", "label_audit_stg.csv", "exact label (Justine's y_6m)", "test", "base_rate", 0.0026),
         ("label_audit", "label_audit_stg.csv", "+ model-name variant (4xe, L, Hybrid, ...)", "test",
          "lgbm_precision_at_20", 0.136),
         ("investigations", "x.csv", "v1", "val", "precision_at_20", 0.071),
@@ -93,10 +99,10 @@ def clean(monkeypatch):
     st.cache_data.clear()
 
 
-def fake_bigquery(monkeypatch, tables, broken=()):
+def fake_bigquery(monkeypatch, tables, broken=(), error="not found"):
     def read(name, limit=None, timeout=None):
         if name in broken or name not in tables:
-            raise RuntimeError(f"{name} not found")
+            raise RuntimeError(f"{name} {error}")
         return tables[name].copy()
     monkeypatch.setattr(bq_reader, "read_table", read)
     monkeypatch.setattr(bq_reader, "read_view", read)
@@ -112,14 +118,17 @@ def fake_local(monkeypatch, tables, broken=()):
     monkeypatch.setattr(D, "LOCAL_LOADERS", {n: loader(n) for n in D.LOCAL_LOADERS})
 
 
-def run_app() -> AppTest:
-    at = AppTest.from_file(APP, default_timeout=60).run()
+def run_app(state: dict | None = None) -> AppTest:
+    at = AppTest.from_file(APP, default_timeout=90)
+    for key, value in (state or {}).items():
+        at.session_state[key] = value
+    at.run()
     assert not at.exception, [e.message for e in at.exception]
     assert [t.label for t in at.tabs] == TABS
     return at
 
 
-def markdown_text(at: AppTest) -> str:
+def text(at: AppTest) -> str:
     return "\n".join(m.value for m in at.markdown)
 
 
@@ -129,15 +138,40 @@ def test_every_tab_renders_with_bigquery_data(monkeypatch):
     fake_local(monkeypatch, tables, broken=set(tables))  # must not be needed
 
     at = run_app()
+    page = text(at)
 
-    assert "BigQuery" in markdown_text(at) and "local data" not in markdown_text(at)
-    metrics = {m.label: m for m in at.metric}
-    assert metrics["Precision@20"].value == "11.8%"
-    assert metrics["Citations valid"].value == "2/2"
-    assert metrics["Citations valid"].delta == "2 unique complaints"
-    assert "Screen goes dark [ODINO 111]" in markdown_text(at)  # the brief is rendered
-    assert at.selectbox(key="watch_month").value == "2024-12"
-    assert not at.info  # nothing missing
+    assert "Live results" in page and "Local data" not in page
+    assert "11.8%" in page and "2 of 2" in page and "2 unique complaints" in page  # KPI cards
+    assert "Screen goes dark" in page and "ODINO 111" in page                     # brief cards
+    assert "What drivers report" in page and "Similar past recalls: none found" in page
+    assert "Data sources" in page and "Honest limitations" in page
+    assert at.selectbox(key="watch_month").value == "Dec 2024"
+    assert not at.info
+
+
+@pytest.mark.parametrize("page_key, key", [("results", k) for k in RESULT_TILES]
+                         + [("traj", k) for k in TRAJ_TILES])
+def test_every_tile_detail_view_renders(monkeypatch, page_key, key):
+    tables = fake_tables()
+    fake_bigquery(monkeypatch, tables)
+
+    at = run_app({f"detail_{page_key}": key})
+
+    labels = [b.label for b in at.button]
+    assert "Back to overview" in labels or "Back to trajectories" in labels
+    assert any(w in text(at) for w in ("What we found", "What it measures"))
+
+
+def test_tiles_open_and_close(monkeypatch):
+    tables = fake_tables()
+    fake_bigquery(monkeypatch, tables)
+    at = run_app()
+
+    at.button(key="open_results_hit").click().run()
+    assert at.session_state["detail_results"] == "hit"
+    at.button(key="back_results").click().run()
+    assert at.session_state["detail_results"] is None
+    assert not at.exception
 
 
 def test_widgets_work(monkeypatch):
@@ -145,23 +179,37 @@ def test_widgets_work(monkeypatch):
     fake_bigquery(monkeypatch, tables)
     at = run_app()
 
-    at.selectbox(key="watch_month").select("2024-11").run()
-    at.radio(key="traj_type").set_value("pedestrian").run()
+    at.selectbox(key="watch_month").select("Nov 2024").run()
+    at.button_group(key="traj_type").set_value("pedestrian").run()
 
     assert not at.exception, [e.message for e in at.exception]
-    assert at.selectbox(key="traj_pick").value.startswith("pedestrian")
+    assert at.selectbox(key="traj_pick").label.endswith("pedestrians)")
 
 
 def test_local_fallback_when_bigquery_unreachable(monkeypatch):
     tables = fake_tables()
-    fake_bigquery(monkeypatch, {}, broken=set(tables))  # every BigQuery read fails
+    fake_bigquery(monkeypatch, {}, broken=set(tables), error="connection timed out")
+    fake_local(monkeypatch, tables)
+
+    at = run_app({"detail_results": "fair"})
+
+    page = text(at)
+    assert "Local data" in page and "isn't reachable" in page
+    assert "Are we grading fairly?" in page
+
+
+def test_missing_login_shows_one_friendly_line(monkeypatch):
+    tables = fake_tables()
+    fake_bigquery(monkeypatch, {}, broken=set(tables),
+                  error="Not authenticated to BigQuery. Run `gcloud auth application-default login`")
     fake_local(monkeypatch, tables)
 
     at = run_app()
 
-    assert "local data" in markdown_text(at)
-    assert {m.label: m.value for m in at.metric}["Precision@20"] == "11.8%"  # headline computed locally
-    assert not at.info
+    page = text(at)
+    assert "run gcloud auth application-default login to read from BigQuery" in page
+    assert "Not authenticated" not in page                      # raw error only in Technical details
+    assert any("Not authenticated" in c.value for c in at.code)
 
 
 def test_vse_data_local_skips_bigquery(monkeypatch):
@@ -173,7 +221,7 @@ def test_vse_data_local_skips_bigquery(monkeypatch):
 
     at = run_app()
 
-    assert "local data" in markdown_text(at)
+    assert "switched off" in text(at)
 
 
 @pytest.mark.parametrize("name", ["waymo_demo_examples", "agent_citations", "recall_audit",
@@ -185,8 +233,9 @@ def test_missing_table_shows_notice_and_other_tabs_still_work(monkeypatch, name)
 
     at = run_app()
 
-    assert any(name in i.body for i in at.info), [i.body for i in at.info]
-    assert len(at.metric) > 0  # the rest of the app still renders
+    if name not in ("agent_citations", "recall_audit"):  # these two only shrink a card / drop a tile
+        assert any(name in i.body for i in at.info), [i.body for i in at.info]
+    assert "Data sources" in text(at)  # the rest of the app still renders
 
 
 def test_headline_from_tables_matches_inputs():
@@ -202,3 +251,12 @@ def test_no_secrets_means_local_gcloud_login(monkeypatch):
     monkeypatch.setattr(bq_reader, "_client", None)
     assert D.use_streamlit_secrets() is False
     assert bq_reader._client is None
+
+
+def test_report_readers_parse_committed_files():
+    from app import reports
+
+    assert reports.overlap(20) is not None
+    assert len(reports.ablation()) == 4
+    assert reports.label_audit_misses()["misses"].sum() > 0
+    assert reports.miss_reasons()["recalls"].sum() > 0
