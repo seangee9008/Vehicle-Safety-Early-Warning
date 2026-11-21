@@ -1,0 +1,51 @@
+example_id,object_type,description,fde_8s_cv_m,fde_8s_best_m,fde_8s_min_m,travelled_m,turns
+111bb47bff784423_91,vehicle,Car pulling away · 0 km/h,53.455,41.451,10.86,53.461,True
+129eb435ec53ef1d_413,vehicle,Car going straight · 22 km/h,6.059,18.484,4.511,52.997,False
+19d992298d377f21_396,vehicle,Car going straight · 7 km/h,23.526,2.18,2.18,36.39,False
+1f8ef9a70c458620_290,vehicle,Car slowing · 45 km/h,68.987,7.032,7.032,31.658,False
+3b833a190d8dc2c7_1544,vehicle,Car turning left · 33 km/h,30.23,20.059,14.681,79.941,True
+4a913307dc754c4f_648,vehicle,Car going straight · 5 km/h,60.976,44.826,7.365,70.843,False
+4ba0498860f3c0a2_851,vehicle,Car slowing · 43 km/h,62.911,23.751,8.666,32.091,False
+52b497677c713bb_488,vehicle,Car slowing · 11 km/h,21.839,1.127,1.127,3.025,False
+65b1b03d3bcb0193_2423,vehicle,Car going straight · 36 km/h,10.1,3.807,3.807,89.689,False
+853f1aab3cd710c8_1054,vehicle,Car going straight · 53 km/h,15.402,16.573,2.159,101.324,False
+8648f5e79d851915_819,vehicle,Car slowing · 15 km/h,29.121,1.822,1.822,5.173,False
+8dfefbaed04192fb_4416,vehicle,Car slowing · 34 km/h,35.667,25.086,3.705,39.379,False
+92c3aaec33d7e403_2479,vehicle,Car going straight · 53 km/h,15.225,18.18,6.379,103.633,False
+9fe8b30f6884e198_41,vehicle,Car slowing · 49 km/h,61.97,24.08,3.284,46.334,False
+a3c1aa478f496733_435,vehicle,Car slowing · 27 km/h,39.355,10.411,0.227,19.635,False
+a5276b8fa5b389e1_8,vehicle,Car going straight · 6 km/h,1.602,33.574,4.546,13.544,False
+a9b45abefc2eacb9_1677,vehicle,Car going straight · 37 km/h,12.625,9.717,9.717,74.889,True
+b1457afe91002568_776,vehicle,Car pulling away · 0 km/h,59.726,56.723,10.596,60.064,False
+bd094f42eeab6700_335,vehicle,Car turning left · 10 km/h,11.502,37.683,12.903,28.951,True
+d1988864008fc062_314,vehicle,Car going straight · 20 km/h,50.211,17.702,2.718,94.522,False
+d42aa9e7ae47c9a_1099,vehicle,Car turning right · 2 km/h,16.582,15.453,15.453,21.403,True
+d782e0b81cb67a55_130,vehicle,Car turning left · 61 km/h,80.26,36.782,14.257,56.369,False
+ee385cebe7735f6_1511,vehicle,Car going straight · 27 km/h,40.259,14.327,6.791,99.653,True
+f2da917089c82822_183,vehicle,Car turning left · 24 km/h,40.188,21.432,6.716,71.282,True
+fa8fcafa16e60736_1185,vehicle,Car turning left · 27 km/h,38.644,8.493,8.493,49.473,True
+5b6e16614f5c47b5_2339,pedestrian,Pedestrian going straight · 5 km/h,0.455,2.1,0.706,11.786,False
+5c14062cdca66b03_1509,pedestrian,Pedestrian going straight · 4 km/h,0.308,0.567,0.567,9.701,False
+63bcffc229444c56_627,pedestrian,Pedestrian going straight · 4 km/h,0.45,2.777,1.245,11.655,False
+6c473fa0f3ec89d4_2591,pedestrian,Pedestrian pulling away · 1 km/h,8.402,9.127,7.299,10.329,True
+8d3c1bb534e5521_4753,pedestrian,Pedestrian going straight · 5 km/h,1.677,1.252,1.076,9.958,False
+9b167470ffd9a9a4_1178,pedestrian,Pedestrian going straight · 5 km/h,1.628,1.971,0.552,9.825,False
+9c762831f131cea3_6121,pedestrian,Pedestrian turning left · 4 km/h,3.981,3.544,2.303,9.292,False
+a18fcad9beede995_2028,pedestrian,Pedestrian going straight · 22 km/h,4.041,2.899,1.547,20.323,False
+a2cf10457974619a_165,pedestrian,Pedestrian going straight · 4 km/h,2.196,1.541,0.888,6.179,False
+ab77ab9c73b01ee8_1932,pedestrian,Pedestrian turning left · 5 km/h,6.666,4.922,2.02,6.553,False
+bd64b1e53258417d_2366,pedestrian,Pedestrian going straight · 5 km/h,0.358,2.102,0.552,11.517,False
+dbad80471b38b7_1152,pedestrian,Pedestrian turning left · 5 km/h,1.739,3.142,1.802,12.671,False
+e38692374f5747_3839,pedestrian,Pedestrian going straight · 3 km/h,1.283,3.809,1.373,8.228,False
+f3b2459ccaf463ce_4472,pedestrian,Pedestrian going straight · 5 km/h,0.374,1.495,0.889,10.482,False
+fe3eb27d3776d5ab_1251,pedestrian,Pedestrian going straight · 4 km/h,1.38,0.637,0.637,7.054,False
+46fce0158d2fae57_665,cyclist,Cyclist turning left · 22 km/h,36.239,27.747,12.832,53.603,True
+4bf23cf8ab2d8240_2598,cyclist,Cyclist going straight · 16 km/h,0.138,6.271,0.841,24.624,False
+59afe611a68a9b39_5951,cyclist,Cyclist going straight · 14 km/h,0.785,3.01,3.01,31.838,False
+75482db749180d8c_209,cyclist,Cyclist slowing · 16 km/h,25.221,25.626,2.187,11.305,False
+7ed5260232adaf6d_1043,cyclist,Cyclist pulling away · 1 km/h,11.602,15.598,7.796,16.49,True
+8d550c74ec830a52_117,cyclist,Cyclist pulling away · 0 km/h,20.145,15.885,11.068,21.616,True
+8ef8b8a6c02ccd01_153,cyclist,Cyclist going straight · 21 km/h,2.522,2.855,2.855,48.739,False
+a1490a60e758eaf9_6630,cyclist,Cyclist going straight · 6 km/h,17.873,11.054,3.75,31.676,False
+cab49708968f63ea_58,cyclist,Cyclist going straight · 14 km/h,4.292,5.389,3.615,35.371,False
+e61319796fcc7ee0_400,cyclist,Cyclist going straight · 10 km/h,2.966,6.85,0.761,20.694,False
