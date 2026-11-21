@@ -15,9 +15,8 @@ Only SELECT queries are run; nothing here can change a table.
 
 from __future__ import annotations
 
-from datetime import datetime
-
 import json
+from datetime import datetime
 
 import pandas as pd
 
