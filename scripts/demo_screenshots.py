@@ -24,7 +24,11 @@ OUT = ROOT / "reports" / "figures"
 CONTENT_HEIGHT_JS = """() => Math.max(...[...document.querySelectorAll(
   '[data-testid="stMain"], [data-testid="stAppViewContainer"], section.main, [data-testid="stMainBlockContainer"]'
 )].map(e => e.scrollHeight), document.body.scrollHeight)"""
-TABS = ["Overview", "Recall watchlist", "Investigation brief", "Model results", "Trajectory", "About"]
+TABS = ["Overview", "Recall watchlist", "Investigation brief", "Model results", "Trajectory",
+        "Data and limitations"]
+# (tab, tile key, file name): tile detail views to capture after the tabs
+DETAILS = [("Model results", "results_hit", "demo_detail_hit_rate"),
+           ("Model results", "results_fair", "demo_detail_grading")]
 
 
 def free_port() -> int:
@@ -43,6 +47,19 @@ def wait_for(url: str, timeout: float = 60) -> None:
         except OSError:
             time.sleep(0.5)
     raise RuntimeError(f"streamlit did not start at {url}")
+
+
+def shoot(page, args, file_name: str) -> None:
+    page.set_viewport_size({"width": args.width, "height": args.height})
+    page.wait_for_timeout(2500)  # charts finish drawing
+    # Streamlit scrolls an inner container, so grow the window to the content height
+    height = page.evaluate(CONTENT_HEIGHT_JS)
+    page.set_viewport_size({"width": args.width, "height": max(args.height, height + 40)})
+    page.mouse.move(2, 2)  # park the mouse so no hover tooltip is captured
+    page.wait_for_timeout(1500)
+    path = OUT / f"{file_name}.png"
+    page.screenshot(path=str(path))
+    print(f"wrote {path.relative_to(ROOT)}")
 
 
 def main() -> int:
@@ -69,16 +86,15 @@ def main() -> int:
             page.goto(url, wait_until="networkidle")
             page.get_by_role("tab", name="Overview").wait_for(timeout=120_000)  # data loaded
             for name in TABS:
-                page.set_viewport_size({"width": args.width, "height": args.height})
                 page.get_by_role("tab", name=name).click()
-                page.wait_for_timeout(2500)  # charts and images finish drawing
-                # Streamlit scrolls an inner container, so grow the window to the content height
-                height = page.evaluate(CONTENT_HEIGHT_JS)
-                page.set_viewport_size({"width": args.width, "height": max(args.height, height + 40)})
-                page.wait_for_timeout(1500)
-                path = OUT / f"demo_{name.lower().replace(' ', '_')}.png"
-                page.screenshot(path=str(path))
-                print(f"wrote {path.relative_to(ROOT)}")
+                shoot(page, args, f"demo_{name.lower().replace(' ', '_')}")
+            for tab, key, file_name in DETAILS:
+                page.get_by_role("tab", name=tab).click()
+                page.wait_for_timeout(1000)
+                page.locator(f".st-key-open_{key} button").click()
+                shoot(page, args, file_name)
+                page.locator(f".st-key-back_{key.split('_')[0]} button").click()
+                page.wait_for_timeout(1000)
             browser.close()
     finally:
         server.terminate()

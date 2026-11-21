@@ -1,4 +1,14 @@
-# Streamlit settings for the demo (python run.py demo).
+# Streamlit settings for the demo (python run.py demo). Colors match app/theme.py.
+[theme]
+base = "light"
+primaryColor = "#1F4E9A"          # Track A: vehicle recalls
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F7FA"
+textColor = "#1F2933"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+borderColor = "#E3E7EC"
+showWidgetBorder = true
+
 [client]
 toolbarMode = "viewer"   # no Deploy button / developer menu while presenting
 
