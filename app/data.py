@@ -78,6 +78,26 @@ LOCAL_LOADERS: dict[str, Callable[[], pd.DataFrame]] = {
 }
 
 
+def use_streamlit_secrets() -> bool:
+    """On Streamlit Cloud: log in to BigQuery with the read-only service account in the app's
+    Secrets ([gcp_service_account]). Locally (no secrets) gcloud's login is used as usual."""
+    try:
+        import streamlit as st
+
+        info = dict(st.secrets["gcp_service_account"])
+    except Exception:  # noqa: BLE001 - no secrets file / no such key: nothing to do
+        return False
+    from google.cloud import bigquery
+    from google.oauth2 import service_account
+
+    from src import bq_reader
+
+    credentials = service_account.Credentials.from_service_account_info(info)
+    bq_reader._client = bigquery.Client(project=bq_reader.PROJECT, location=bq_reader.LOCATION,
+                                        credentials=credentials)
+    return True
+
+
 def _bq_read(name: str) -> pd.DataFrame:
     from src import bq_reader
 
@@ -137,6 +157,8 @@ def load_all() -> Data:
     """Load every table; BigQuery unless VSE_DATA=local or the first query fails."""
     names = list(SOURCES)
     use_bq = os.environ.get("VSE_DATA", "").lower() != "local"
+    if use_bq:
+        use_streamlit_secrets()
     tables, source, problems = {}, {}, {}
     if use_bq:  # one probe first, so an offline laptop doesn't wait for every table to time out
         df, src, problem = _load_one("v_headline_metrics", use_bq=True)

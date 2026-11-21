@@ -28,3 +28,16 @@ writes `reports/figures/demo_*.png`.
 
 **Presenting:** open it once before the talk so the cache is warm (first BigQuery load ~5 s). No
 wifi: `VSE_DATA=local`.
+
+## Public link (Streamlit Community Cloud, free)
+
+1. [share.streamlit.io](https://share.streamlit.io): sign in with GitHub, **Create app** → deploy from
+   GitHub: repo `seangee9008/Vehicle-Safety-Early-Warning`, branch `main`, main file
+   `app/streamlit_app.py`, pick a URL (e.g. `vehicle-safety-early-warning`).
+2. **Advanced settings**: Python 3.11. **Secrets**: paste the read-only BigQuery login
+   (`[gcp_service_account]`, a key for `vse-demo-reader@waymo-project-513802`, which can only read
+   the `vehicle_safety` dataset and run queries). Sean has it; never commit it.
+
+Cloud installs `app/requirements.txt` (the demo's few packages), not the full project requirements.
+There is no local data on Cloud, so if BigQuery fails a tab shows a notice instead of numbers.
+Sandbox tables expire Jan 18, 2027 (republish with `python run.py publish --publish`).

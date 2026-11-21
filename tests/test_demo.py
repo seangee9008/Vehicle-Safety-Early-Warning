@@ -196,3 +196,9 @@ def test_headline_from_tables_matches_inputs():
     assert h["model_precision_at_20"] == pytest.approx(0.118)
     assert h["briefs"] == 1 and h["briefs_fully_valid"] == 1
     assert h["waymo_best_guess_vs_cv_pct"] == pytest.approx(25.0)
+
+
+def test_no_secrets_means_local_gcloud_login(monkeypatch):
+    monkeypatch.setattr(bq_reader, "_client", None)
+    assert D.use_streamlit_secrets() is False
+    assert bq_reader._client is None
