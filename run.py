@@ -1,6 +1,6 @@
 """One entry point for common project tasks. See AGENTS.md (Commands).
 
-    python run.py check | data | dbt | test | lint | waymo | briefs | status | contracts | publish
+    python run.py check | data | dbt | test | lint | waymo | briefs | status | contracts | publish | snapshot
     python run.py pipeline | all    (rebuild everything in order; --dry-run lists the steps)
     python run.py demo              Streamlit demo (VSE_DATA=local to skip BigQuery)
 
@@ -187,6 +187,11 @@ def cmd_demo(args: argparse.Namespace) -> int:
     return _run([python, "-m", "streamlit", "run", "app/streamlit_app.py", *args.extra])
 
 
+def cmd_snapshot(args: argparse.Namespace) -> int:
+    # Save every table the demo reads from BigQuery into app/snapshot/ (--final: use it for good).
+    return _run([PY, "-m", "src.snapshot", *args.extra])
+
+
 def cmd_status(_: argparse.Namespace) -> int:
     lines = (ROOT / "STATUS.md").read_text(encoding="utf-8").splitlines()
     start = next((i for i, line in enumerate(lines) if line.startswith("| Task")), None)
@@ -217,6 +222,7 @@ COMMANDS = {
     "pipeline": cmd_pipeline,
     "all": cmd_all,
     "demo": cmd_demo,
+    "snapshot": cmd_snapshot,
 }
 
 
@@ -226,7 +232,7 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true", help="data: rebuild data/nhtsa.duckdb")
     parser.add_argument("--dry-run", action="store_true", help="pipeline/all: list the steps only")
     args, extra = parser.parse_known_args()
-    if extra and args.command not in ("publish", "demo"):
+    if extra and args.command not in ("publish", "demo", "snapshot"):
         parser.error(f"unrecognized arguments: {' '.join(extra)}")
     args.extra = extra
     raise SystemExit(COMMANDS[args.command](args))

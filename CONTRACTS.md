@@ -82,13 +82,17 @@ Sandbox tables expire 60 days after a publish, so republish before then.
 | `agent_briefs` | 10 | One row per brief: Markdown, model, citation and self-correction results |
 | `agent_citations` | 76 | One row per complaint cited in a brief (`brief_id`, `odino`, `valid`) |
 | `waymo_results` | 36 | Model vs constant velocity by type x horizon x predictor |
-| `waymo_demo_examples` | 50 | Agents to draw: paths, 6 model paths + confidences, lanes (JSON, agent frame) |
+| `dataset_facts` | 18 | Dataset sizes (complaints, recalls, scenes, test window) as key/value text |
+| `recall_ablation`, `recall_overlap`, `recall_miss_reasons`, `label_audit_misses` | 3-4 each | Small result tables the demo's model-results tiles draw |
+| `agent_complaints`, `agent_monthly`, `agent_brief_stats` | 76 / 70 / 10 | Cited complaints' date + excerpt, monthly counts and complaints on file for the briefed cars |
 | `publish_log` | 1 per table per publish | When, which commit, rows, bytes |
 | `v_watchlist_with_briefs` | view | `watchlist` LEFT JOIN `agent_briefs` on month + rank, `has_brief` |
 | `v_headline_metrics` | view | One row of headline numbers for the overview page |
 
 Every table and column has a description in BigQuery. Never published: raw/stg complaints and
-recalls, `monthly_features`, Waymo tracks.
+recalls, `monthly_features`, Waymo tracks or any trajectory coordinates (the public demo shows
+pre-rendered images from `app/static/trajectory/`). A saved copy of every table the demo reads is in
+`app/snapshot/` (`python run.py snapshot`; DEPLOY.md).
 
 Setup once per laptop: ask Sean to give your Google account *BigQuery Data Viewer* and *BigQuery
 Job User* on the project, then run `gcloud auth application-default login`. Reading is free.
@@ -105,9 +109,8 @@ for row in latest[latest.has_brief].itertuples():
     print(row.rank, row.make, row.model, row.model_year, row.component)
     print(row.brief_markdown)
 
-examples = read_table("waymo_demo_examples")   # JSON columns are already Python lists
-ex = examples.iloc[0]
-best_path = ex.model_paths[0]                   # 80 [x, y] points, highest confidence first
+cited = read_table("agent_complaints")          # each cited complaint: date + short excerpt
+print(cited.head())
 ```
 
 Without the helper: `SELECT * FROM \`waymo-project-513802.vehicle_safety.v_headline_metrics\``

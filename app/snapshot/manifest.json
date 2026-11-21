@@ -1,0 +1,24 @@
+{
+  "final": false,
+  "frozen_at": "2026-11-21T09:30:44+00:00",
+  "last_updated": "2026-11-21T09:25:47+00:00",
+  "bq_expires_at": "2027-01-18T06:02:02.226000+00:00",
+  "source": "bigquery waymo-project-513802.vehicle_safety",
+  "tables": {
+    "v_headline_metrics": 1,
+    "v_watchlist_with_briefs": 720,
+    "recall_metrics": 108,
+    "recall_audit": 44,
+    "agent_citations": 76,
+    "waymo_results": 36,
+    "publish_log": 22,
+    "dataset_facts": 18,
+    "recall_ablation": 4,
+    "recall_overlap": 3,
+    "recall_miss_reasons": 4,
+    "label_audit_misses": 4,
+    "agent_complaints": 76,
+    "agent_monthly": 70,
+    "agent_brief_stats": 10
+  }
+}

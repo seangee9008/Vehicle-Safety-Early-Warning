@@ -1,0 +1,9 @@
+# Only app/, src/bq_reader.py and .streamlit/config.toml are copied; keep everything else out.
+data/
+.venv/
+.env
+.streamlit/secrets.toml
+*-sa-key.json
+gcp-key*.json
+reports/briefs/
+**/__pycache__/

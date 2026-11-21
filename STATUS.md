@@ -32,6 +32,7 @@ Last updated: Nov 20.
 | Data quality tests | Angelina | Not started | | Nov 24 |
 | SHAP + final metrics | Justine | Done | PR #5, PR #7 | Nov 24 |
 | Public README (results, team, how to run) | Sean | In review | sean/docs-final | Nov 20 |
+| Public deploy: live BigQuery -> saved copy -> final snapshot (daily Action), Streamlit Cloud + Docker | Sean | In review | sean/deploy | Nov 21 |
 | Write-up sections + presentation | Everyone | Not started | | Nov 24 |
 
 ## Headline numbers

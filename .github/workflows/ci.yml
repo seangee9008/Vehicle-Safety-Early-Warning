@@ -46,3 +46,23 @@ jobs:
           pip install -r requirements.txt
           --extra-index-url https://download.pytorch.org/whl/cpu
       - run: python -m pytest -q
+
+  # The public app with only its own requirements, on the bundled saved copy (no secrets needed).
+  app-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        mode: [snapshot, final]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+      - run: pip install -r app/requirements.txt pytest
+      - run: python -m pytest -q tests/test_app_snapshot.py
+        env:
+          FORCE_MODE: ${{ matrix.mode }}
+          VSE_SNAPSHOT_REMOTE: "0"

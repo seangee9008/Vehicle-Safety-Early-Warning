@@ -29,3 +29,11 @@ dbt/profiles.yml
 
 # OS
 .DS_Store
+
+# Secrets: Streamlit secrets and service-account keys never go in the repo
+.streamlit/secrets.toml
+*-sa-key.json
+gcp-key*.json
+
+# The demo's saved copy of its small result tables (no raw data, no coordinates) is committed
+!app/snapshot/*.parquet
