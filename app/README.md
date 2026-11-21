@@ -9,19 +9,22 @@ Reads the published results from BigQuery (`src/bq_reader.py`, one-time setup in
 [CONTRACTS.md](../CONTRACTS.md#reading-from-bigquery)). If BigQuery isn't reachable or you're not
 logged in, it falls back to local files (DuckDB read-only, `reports/`, the Waymo demo examples) and
 shows a **local data** badge. A table that is in neither place shows a notice in its tab; the rest
-still works. Everything loads once (in parallel) and is cached; **Reload data** in About refreshes.
+still works. Everything loads once (in parallel) and is cached; **Reload data** under "Technical details" refreshes.
 No Gemini calls: the briefs were written and validated beforehand. Every number comes from the data.
 
 | Tab | Shows | Data |
 | --- | --- | --- |
-| Overview | Headline cards for both tracks + two-track diagram | `v_headline_metrics`, `recall_metrics`, `agent_citations`, `waymo_results` |
-| Recall watchlist | Top 20 per month (2022-01 to 2024-12) with SHAP reasons and a brief flag | `v_watchlist_with_briefs` |
-| Investigation brief | The brief with validation badges, cited complaint IDs | `v_watchlist_with_briefs`, `agent_citations` |
-| Model results | Top 20/50/100 vs baseline, PR-AUC, warning weeks, age vs complaints, label audit + investigations, Justine's charts | `recall_metrics`, `recall_audit`, `reports/` |
-| Trajectory | One agent: lanes, past, true future, constant velocity, 6 model paths; all-agent table at 3/5/8 s | `waymo_demo_examples`, `waymo_results` |
-| About | Architecture, team, honest limitations | `recall_metrics`, `waymo_results`, `reports/recall_miss_reasons_stg.csv` |
+| Overview | 4 KPI cards (hit rate, lead time, evidence check, position error), how both tracks work, data at a glance | `v_headline_metrics`, `recall_metrics`, `recall_audit`, `agent_citations`, `waymo_results`, `waymo_demo_examples`, `app/facts.json` |
+| Recall watchlist | Top 20 per month with risk score, why flagged, brief ready; select a row and "View brief" | `v_watchlist_with_briefs` |
+| Investigation brief | Header card with status chips, brief sections as cards, complaint IDs as chips | `v_watchlist_with_briefs`, `agent_citations` |
+| Model results | 6 tiles (hit rate, coverage, lead time, what drives the score, grading, more signals), each with a detail view | `recall_metrics`, `recall_audit`, `reports/recall_overlap_stg.csv`, `reports/recall_miss_reasons_stg.csv`, `reports/recall_results_stg.md`, `reports/label_audit.md` |
+| Trajectory | Road user pills, example picker, 3 KPI cards, the path plot, 3 tiles with detail views | `waymo_demo_examples`, `waymo_results` |
+| Data and limitations | Data sources, honest limitations, how we kept it honest | `app/facts.json`, `recall_metrics`, `waymo_results`, `reports/` |
 
-Files: `streamlit_app.py` (tabs), `data.py` (BigQuery + local fallback), `charts.py` (Altair).
+Files: `streamlit_app.py` (tabs), `data.py` (BigQuery + local fallback), `theme.py` (palette, chart
+template, styles), `components.py` (KPI cards, tiles), `charts.py` (Plotly), `reports.py` (committed
+report files), `build_facts.py` (writes `facts.json`, the dataset counts that aren't in BigQuery:
+`python -m app.build_facts`).
 Tests: `tests/test_demo.py` (AppTest, BigQuery faked). Slide screenshots:
 `python scripts/demo_screenshots.py` (needs `pip install playwright && python -m playwright install chromium`)
 writes `reports/figures/demo_*.png`.
