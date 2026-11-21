@@ -771,12 +771,14 @@ with side:
     else:
         st.markdown(ui.chip("Live results", theme.BG, theme.GOOD, "cloud_done"), unsafe_allow_html=True)
 
-tabs = st.tabs(TABS, key="main_tab")
+# Lazy tabs: only the tab on screen is built and sent to the browser, so the page stays light.
+tabs = st.tabs(TABS, key="main_tab", on_change="rerun")
 for tab, render in zip(tabs, [lambda: tab_overview(data, facts), lambda: tab_watchlist(data),
                               lambda: tab_agent(data), lambda: tab_results(data),
                               lambda: tab_trajectory(data), lambda: tab_data(data, facts)], strict=True):
-    with tab:
-        render()
+    if tab.open:
+        with tab:
+            render()
 
 with st.expander("Technical details"):
     st.markdown("\n".join(f"- `{name}`: {source}" for name, source in data.source.items()))

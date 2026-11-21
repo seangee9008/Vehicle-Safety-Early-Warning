@@ -114,7 +114,7 @@ pio.templates["vse_dark"] = go.layout.Template(layout=go.Layout(
 def css(scale: float = 1.0) -> str:
     return f"""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&display=block');
+  /* icons use the Material Symbols font Streamlit already ships (no extra download) */
   :root {{ --s: {scale}; }}
   html {{ font-size: calc({BASE_PX}px * var(--s)); }}
   html, body, [class*="css"], .stApp {{ font-family: {FONT}; }}
