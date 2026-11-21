@@ -1,81 +1,154 @@
-"""Charts for the demo (Altair, bundled with Streamlit)."""
+"""Every chart in the demo, in one house style (theme.py): plain axis labels with units, model in
+its track color, baseline in gray, no titles inside charts (cards carry the titles)."""
 
 from __future__ import annotations
 
-import altair as alt
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 
-KINDS = ["past (1 s)", "true future (8 s)", "constant velocity", "model: most confident",
-         "model: other 5 paths"]
-COLORS = ["#3b3b3b", "#1f77b4", "#ff7f0e", "#d62728", "#f2a3a3"]
-MODEL = "#d62728"
+from app import theme
 
-
-def _points(path, kind: str, line: str, width: float, opacity: float = 1.0) -> list[dict]:
-    return [{"x": p[0], "y": p[1], "kind": kind, "line": line, "order": i, "w": width, "o": opacity}
-            for i, p in enumerate(path) if p is not None]
+CONFIG = {"displayModeBar": False, "responsive": True}
+PREDICTORS = {"constant_velocity": "Going straight", "model_best_guess": "Top guess",
+              "model_best_of_6": "Closest of 6"}
 
 
-def trajectory_frame(example: pd.Series) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(paths, lanes) long frames for one waymo_demo_examples row."""
-    rows = []
-    rows += _points(example["past_path"], KINDS[0], "past", 3.0)
-    rows += _points(example["true_future"], KINDS[1], "future", 2.5)
-    rows += _points(example["baseline_path"], KINDS[2], "cv", 2.5)
+def _layout(fig: go.Figure, height: int = 340, **kwargs) -> go.Figure:
+    fig.update_layout(template="vse", height=height, **kwargs)
+    return fig
+
+
+def model_vs_baseline(k: list[int], model: list[float], baseline: list[float], *, color: str,
+                      ytitle: str, percent: bool = True,
+                      xtitle: str = "Cars flagged per month") -> go.Figure:
+    fmt = ".1%" if percent else ",.0f"
+    fig = go.Figure()
+    for name, values, c in [("Model", model, color), ("Baseline", baseline, theme.BASELINE)]:
+        fig.add_bar(x=[f"Top {x}" for x in k], y=values, name=name, marker_color=c,
+                    text=[format(v, fmt) for v in values], textposition="outside",
+                    hovertemplate=f"{name}<br>%{{x}}: %{{y:{fmt}}}<extra></extra>")
+    fig.update_yaxes(title_text=ytitle, tickformat=".0%" if percent else ",",
+                     rangemode="tozero", automargin=True)
+    fig.update_xaxes(title_text=xtitle)
+    return _layout(fig, barmode="group")
+
+
+def bars(labels: list[str], values: list[float], colors: list[str], *, ytitle: str,
+         percent: bool = True, height: int = 320, xtitle: str = "") -> go.Figure:
+    fmt = ".1%" if percent else ",.1f"
+    fig = go.Figure(go.Bar(x=labels, y=values, marker_color=colors,
+                           text=[format(v, fmt) for v in values], textposition="outside",
+                           hovertemplate=f"%{{x}}: %{{y:{fmt}}}<extra></extra>"))
+    fig.update_yaxes(title_text=ytitle, tickformat=".0%" if percent else ",", rangemode="tozero")
+    fig.update_xaxes(title_text=xtitle)
+    return _layout(fig, height=height, showlegend=False)
+
+
+def lead_time_groups(groups: list[str], model: list[float | None], baseline: list[float | None],
+                     counts: list[str], color: str) -> go.Figure:
+    fig = go.Figure()
+    for name, values, c in [("Model", model, color), ("Baseline", baseline, theme.BASELINE)]:
+        fig.add_bar(x=groups, y=values, name=name, marker_color=c,
+                    text=[f"{v:.0f} wk" if v is not None else "" for v in values], textposition="outside",
+                    customdata=counts,
+                    hovertemplate=f"{name}<br>%{{x}}<br>%{{y:.1f}} weeks<br>%{{customdata}}<extra></extra>")
+    fig.update_yaxes(title_text="Median lead time (weeks)", rangemode="tozero")
+    return _layout(fig, barmode="group")
+
+
+def donut(labels: list[str], values: list[float], colors: list[str]) -> go.Figure:
+    fig = go.Figure(go.Pie(labels=labels, values=values, hole=0.62, sort=False, direction="clockwise",
+                           marker={"colors": colors, "line": {"color": "white", "width": 2}},
+                           textinfo="percent",
+                           hovertemplate="%{label}<br>%{value:,} recalls (%{percent})<extra></extra>"))
+    return _layout(fig, height=330, legend={"orientation": "v", "y": 0.5, "x": 1.02, "yanchor": "middle"})
+
+
+def horizon_lines(results: pd.DataFrame, object_type: str = "all") -> go.Figure:
+    df = results[results["object_type"] == object_type]
+    fig = go.Figure()
+    styles = {"constant_velocity": (theme.BASELINE, "dash"), "model_best_guess": (theme.TRACK_B, "solid"),
+              "model_best_of_6": (theme.TRACK_B, "dot")}
+    for predictor, (color, dash) in styles.items():
+        d = df[df["predictor"] == predictor].sort_values("horizon_s")
+        fig.add_scatter(x=d["horizon_s"], y=d["fde_m"], name=PREDICTORS[predictor], mode="lines+markers",
+                        line={"color": color, "dash": dash, "width": 3}, marker={"size": 8},
+                        hovertemplate=f"{PREDICTORS[predictor]}<br>after %{{x}} s: %{{y:.2f}} m<extra></extra>")
+    fig.update_xaxes(title_text="Seconds ahead", tickvals=sorted(df["horizon_s"].unique()), ticksuffix=" s")
+    fig.update_yaxes(title_text="Position error (meters)", rangemode="tozero")
+    return _layout(fig)
+
+
+def by_road_user(results: pd.DataFrame, horizon_s: int = 8) -> go.Figure:
+    df = results[(results["horizon_s"] == horizon_s) & (results["object_type"] != "all")]
+    order = [t for t in ("vehicle", "pedestrian", "cyclist") if t in set(df["object_type"])]
+    fig = go.Figure()
+    colors = {"constant_velocity": theme.BASELINE, "model_best_guess": theme.TRACK_B,
+              "model_best_of_6": "#7CC4BA"}
+    for predictor, label in PREDICTORS.items():
+        d = df[df["predictor"] == predictor].set_index("object_type").reindex(order)
+        fig.add_bar(x=[t.capitalize() for t in order], y=d["fde_m"], name=label,
+                    marker_color=colors[predictor], customdata=d["n_agents"],
+                    hovertemplate=f"{label}<br>%{{x}}: %{{y:.2f}} m<br>%{{customdata:,}} road users<extra></extra>")
+    fig.update_yaxes(title_text=f"Position error after {horizon_s} s (meters)", rangemode="tozero")
+    return _layout(fig, barmode="group")
+
+
+def _xy(points) -> tuple[list, list]:
+    pts = [p for p in points if p is not None]
+    return [p[0] for p in pts], [p[1] for p in pts]
+
+
+def trajectory(example: pd.Series, color: str) -> go.Figure:
+    """Lanes, past, what really happened, going straight, 6 guesses; equal axis scale."""
+    fig = go.Figure()
+    xs, ys = [], []
+    for line in example["lane_polylines"]:
+        x, y = _xy(line)
+        xs += x + [None]
+        ys += y + [None]
+    fig.add_scatter(x=xs, y=ys, mode="lines", name="Lanes", line={"color": theme.LANE, "width": 1},
+                    hoverinfo="skip")
+    paths = list(example["model_paths"])
     conf = list(example["model_confidences"])
-    for k, path in enumerate(example["model_paths"]):  # highest confidence first
-        kind = KINDS[3] if k == 0 else KINDS[4]
-        rows += _points(path, kind, f"model{k}", 4.5 if k == 0 else 1.2 + 3 * conf[k],
-                        1.0 if k == 0 else 0.85)
-    lanes = [{"x": p[0], "y": p[1], "line": f"lane{i}", "order": j}
-             for i, line in enumerate(example["lane_polylines"]) for j, p in enumerate(line)]
-    return pd.DataFrame(rows), pd.DataFrame(lanes, columns=["x", "y", "line", "order"])
+    for k in range(len(paths) - 1, -1, -1):  # the top guess is drawn last among the guesses
+        x, y = _xy(paths[k])
+        top = k == 0
+        fig.add_scatter(x=x, y=y, mode="lines", name="Top guess" if top else "Other guesses",
+                        legendgroup="top" if top else "other", showlegend=top or k == 1,
+                        line={"color": theme.TRACK_B, "width": 4 if top else 1.5}, opacity=1 if top else 0.55,
+                        hovertemplate=f"{'Top guess' if top else 'Guess'} (confidence {conf[k]:.0%})<extra></extra>")
+    x, y = _xy(example["baseline_path"])
+    fig.add_scatter(x=x, y=y, mode="lines", name="Going straight",
+                    line={"color": theme.BASELINE, "width": 2.5, "dash": "dash"}, hoverinfo="skip")
+    x, y = _xy(example["past_path"])
+    fig.add_scatter(x=x, y=y, mode="lines", name="Past second", line={"color": theme.PAST, "width": 3.5},
+                    hoverinfo="skip")
+    x, y = _xy(example["true_future"])
+    fig.add_scatter(x=x, y=y, mode="lines", name="What really happened", line={"color": color, "width": 5},
+                    hovertemplate="What really happened<extra></extra>")
+    fig.add_scatter(x=[0], y=[0], mode="markers", name="Now", marker={"color": theme.INK, "size": 9},
+                    hovertemplate="Position now<extra></extra>", showlegend=False)
+
+    pts = np.array([p for path in [example["past_path"], example["true_future"], example["baseline_path"],
+                                   *paths] for p in path if p is not None], dtype=float)
+    lo, hi = pts.min(0), pts.max(0)
+    center, half = (lo + hi) / 2, max(float((hi - lo).max()) / 2 * 1.2, 12.0)
+    fig.update_xaxes(range=[center[0] - half, center[0] + half], title_text="Meters ahead",
+                     showgrid=False, zeroline=False)
+    fig.update_yaxes(range=[center[1] - half, center[1] + half], title_text="Meters to the left",
+                     scaleanchor="x", scaleratio=1, showgrid=False, zeroline=False)
+    return _layout(fig, height=600, legend={"y": -0.16}, margin={"l": 8, "r": 8, "t": 8, "b": 70})
 
 
-def trajectory_chart(example: pd.Series, size: int = 620) -> alt.LayerChart:
-    paths, lanes = trajectory_frame(example)
-    xy = paths[["x", "y"]].to_numpy()
-    lo, hi = xy.min(0), xy.max(0)
-    center = (lo + hi) / 2
-    half = max(float(np.max(hi - lo)) / 2 * 1.25, 12.0)  # equal scales on both axes, 12 m minimum
-    xdom = [center[0] - half, center[0] + half]
-    ydom = [center[1] - half, center[1] + half]
-    x = alt.X("x:Q", scale=alt.Scale(domain=xdom, nice=False), title="metres forward (heading now)")
-    y = alt.Y("y:Q", scale=alt.Scale(domain=ydom, nice=False), title="metres left")
-
-    lane_layer = alt.Chart(lanes).mark_line(clip=True, color="#c9ced6", strokeWidth=1).encode(
-        x=x, y=y, detail="line:N", order="order:Q")
-    # other paths first so the most confident one is drawn on top
-    # true future last: it is the answer, so it must stay visible on top of the model's paths
-    draw_order = {k: i for i, k in enumerate([KINDS[4], KINDS[0], KINDS[2], KINDS[3], KINDS[1]])}
-    paths = (paths.assign(z=paths["kind"].map(draw_order))
-             .sort_values(["z", "line", "order"], kind="stable"))
-    path_layer = alt.Chart(paths).mark_line(clip=True, strokeCap="round").encode(
-        x=x, y=y, detail="line:N", order="order:Q",
-        color=alt.Color("kind:N", scale=alt.Scale(domain=KINDS, range=COLORS),
-                        legend=alt.Legend(title=None, orient="bottom", columns=3)),
-        strokeWidth=alt.StrokeWidth("w:Q", scale=None, legend=None),
-        opacity=alt.Opacity("o:Q", scale=None, legend=None),
-        strokeDash=alt.condition(alt.datum.kind == KINDS[2], alt.value([6, 4]), alt.value([1, 0])),
-    )
-    now = alt.Chart(pd.DataFrame({"x": [0.0], "y": [0.0]})).mark_point(
-        filled=True, size=90, color="black").encode(x=x, y=y)
-    return (lane_layer + path_layer + now).properties(width=size, height=size)
-
-
-def topk_chart(topk: pd.DataFrame, value: str, title: str) -> alt.Chart:
-    """Grouped bars: model vs baseline at each watchlist size."""
-    fmt = ".1%" if value in ("precision", "pct_recalls_caught") else ".0f"
-    base = alt.Chart(topk).encode(
-        x=alt.X("scorer_label:N", title=None, axis=alt.Axis(labels=False, ticks=False)),
-        y=alt.Y(f"{value}:Q", title=title, axis=alt.Axis(format=fmt)),
-        color=alt.Color("scorer_label:N", title=None,
-                        scale=alt.Scale(domain=["model (LightGBM)", "baseline (complaint count)"],
-                                        range=[MODEL, "#9aa5b1"]),
-                        legend=alt.Legend(orient="bottom")),
-    )
-    bars = base.mark_bar()
-    text = base.mark_text(dy=-6).encode(text=alt.Text(f"{value}:Q", format=fmt))
-    return (bars + text).properties(width=90, height=220).facet(
-        column=alt.Column("top_k:O", title="watchlist size per month (top k)"))
+def paired(categories: list[str], first: list[float], second: list[float], names: tuple[str, str],
+           colors: tuple[str, str], ytitle: str) -> go.Figure:
+    """Two bars per category (e.g. original model vs with an extra signal)."""
+    fig = go.Figure()
+    for name, values, c in [(names[0], first, colors[0]), (names[1], second, colors[1])]:
+        fig.add_bar(x=categories, y=values, name=name, marker_color=c,
+                    text=[f"{v:.1%}" for v in values], textposition="outside",
+                    hovertemplate=f"{name}<br>%{{x}}: %{{y:.1%}}<extra></extra>")
+    fig.update_yaxes(title_text=ytitle, tickformat=".0%", rangemode="tozero")
+    return _layout(fig, barmode="group")

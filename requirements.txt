@@ -31,6 +31,7 @@ sentence-transformers>=3.0
 anthropic>=0.40
 python-dotenv>=1.0
 streamlit>=1.39
+plotly>=5.24  # demo charts (app/)
 
 # --- Dev tools ---
 jupyter>=1.1
