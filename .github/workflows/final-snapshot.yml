@@ -1,0 +1,120 @@
+# Saves the final copy of the demo's data before BigQuery's free (sandbox) tables expire.
+# Daily: reads the earliest table expiry from BigQuery. With 3 days or fewer left (or when run by
+# hand with final=true) it saves the final snapshot to the `snapshot` branch (the public app reads
+# it from there within an hour, no merge needed) and opens a PR so main bundles the same copy.
+# Setup: DEPLOY.md (secret GCP_SA_KEY, Actions allowed to create PRs).
+name: Final snapshot
+
+on:
+  schedule:
+    - cron: "17 15 * * *"   # every day 15:17 UTC (7:17 / 8:17 AM Pacific)
+  workflow_dispatch:
+    inputs:
+      final:
+        description: "Save the final copy now (true), or only check the expiry (false)"
+        type: choice
+        options: ["false", "true"]
+        default: "false"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: final-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Is the final copy already saved?
+        id: already
+        run: |
+          if git fetch -q origin snapshot 2>/dev/null \
+             && git show origin/snapshot:app/snapshot/manifest.json > "$RUNNER_TEMP/manifest.json" 2>/dev/null \
+             && python3 -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('final') else 1)" "$RUNNER_TEMP/manifest.json"; then
+            echo "done=true" >> "$GITHUB_OUTPUT"
+            echo "The snapshot branch already has the final copy; nothing to do."
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.already.outputs.done == 'false'
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+
+      - name: Install
+        if: steps.already.outputs.done == 'false'
+        run: pip install -r app/requirements.txt
+
+      - name: Google credentials (written to a temp file, never printed)
+        if: steps.already.outputs.done == 'false'
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          if [ -z "$GCP_SA_KEY" ]; then
+            echo "::error::Secret GCP_SA_KEY is not set (DEPLOY.md, step 2)"; exit 1
+          fi
+          umask 077
+          printf '%s' "$GCP_SA_KEY" > "$RUNNER_TEMP/gcp-key.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp-key.json" >> "$GITHUB_ENV"
+
+      - name: Days until the BigQuery tables expire
+        if: steps.already.outputs.done == 'false'
+        id: days
+        run: |
+          if ! days=$(python -m src.snapshot --days-left); then
+            echo "::error::BigQuery is unreachable or its tables are gone, and no final snapshot exists. The app is on its last saved copy (app/snapshot/). Check the service account / dataset."
+            exit 1
+          fi
+          echo "days=$days" >> "$GITHUB_OUTPUT"
+          go=$(python3 -c "import sys; print('true' if float(sys.argv[1]) <= 3 or sys.argv[2] == 'true' else 'false')" "$days" "${{ github.event.inputs.final }}")
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+          if [ "$go" = "false" ]; then echo "$days days until expiry, nothing to do"; fi
+
+      - name: Save the final copy
+        if: steps.days.outputs.go == 'true'
+        run: python run.py snapshot --final
+
+      - name: Publish it on the snapshot branch (the app reads it from there)
+        if: steps.days.outputs.go == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp -r app/snapshot "$RUNNER_TEMP/final-snapshot"
+          git worktree add --detach "$RUNNER_TEMP/snap"
+          cd "$RUNNER_TEMP/snap"
+          if git ls-remote --exit-code origin refs/heads/snapshot > /dev/null; then
+            git checkout -q -B snapshot origin/snapshot
+          else
+            git checkout -q --orphan snapshot
+            git rm -rfq .
+          fi
+          mkdir -p app && rm -rf app/snapshot && cp -r "$RUNNER_TEMP/final-snapshot" app/snapshot
+          git add app/snapshot
+          git commit -qm "Final data snapshot $(date -u +%F)"
+          git push origin snapshot
+
+      - name: Open a PR so main bundles the same copy
+        if: steps.days.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="final-snapshot-$(date -u +%Y%m%d)"
+          git checkout -q -B "$branch"
+          git add app/snapshot
+          git commit -qm "Bundle the final data snapshot"
+          git push -f origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Bundle the final data snapshot" \
+            --body "BigQuery's sandbox tables expire in ${{ steps.days.outputs.days }} days. The final copy is already live on the snapshot branch; this PR bundles the same files in app/snapshot/ as a fallback." \
+            || echo "A PR for this branch already exists."

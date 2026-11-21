@@ -96,23 +96,56 @@ def fake_tables() -> dict[str, pd.DataFrame]:
         "fde_8s_cv_m": 9.0, "fde_8s_best_m": 3.0, "fde_8s_min_m": 2.0, "travelled_m": 40.0,
         "checkpoint": "mlp.pt",
     } for i, kind in enumerate(["vehicle", "pedestrian", "cyclist"])])
-    tables = {"v_watchlist_with_briefs": watch, "recall_metrics": recall_metrics, "recall_audit": audit,
-              "agent_citations": citations, "waymo_results": waymo, "waymo_demo_examples": examples}
-    normalized = {k: D._normalize(v) for k, v in tables.items()}
+    facts = {"complaints.complaints": 1072108, "complaints.records": 1487991, "complaints.first": "2010-01-01",
+             "complaints.last": "2026-11-16", "complaints.per_year": 62676, "recalls.campaigns": 13621,
+             "recalls.records": 219987, "recalls.first": "2010-01-01", "recalls.last": "2026-10-29",
+             "recalls.per_year": 808, "investigations": 5355, "model.car_parts_ranked_per_month": 92926,
+             "model.test_first_month": "2022-01-01", "model.test_last_month": "2024-12-01",
+             "waymo.train_scenes": 990, "waymo.test_scenes": 286, "agent.read_limit": 40,
+             "generated_at": "2026-11-21T07:40:38+00:00"}
+    tables = {
+        "v_watchlist_with_briefs": watch, "recall_metrics": recall_metrics, "recall_audit": audit,
+        "agent_citations": citations, "waymo_results": waymo,
+        "publish_log": pd.DataFrame({"published_at": ["2026-11-19T06:01:58+00:00", "2026-11-21T09:25:47+00:00"],
+                                     "table_name": ["watchlist", "watchlist"], "rows": [720, 720]}),
+        "dataset_facts": pd.DataFrame({"key": list(facts), "value": [str(v) for v in facts.values()]}),
+        "recall_ablation": pd.DataFrame({"model": ["Baseline (3-month complaint count)", "Age only", "Complaints only",
+                                                   "v1 (complaints + age)"], "hit_rate_20": [0.089, 0.076, 0.064, 0.118],
+                                         "hit_rate_100": [0.056, 0.065, 0.054, 0.079],
+                                         "pr_auc": [0.016, 0.026, 0.017, 0.031]}),
+        "recall_overlap": pd.DataFrame([{"top": 20, "caught_by_both": 13, "only_baseline": 17, "only_lgbm": 49,
+                                         "both_lgbm_earlier": 8, "both_same_month": 1, "both_lgbm_later": 4,
+                                         "both_median_weeks_baseline": 33.4, "both_median_weeks_lgbm": 37.0,
+                                         "only_baseline_median_weeks": 35.1, "only_lgbm_median_weeks": 22.3}]),
+        "recall_miss_reasons": pd.DataFrame({"reason": ["1-2 complaints in the 12 months before",
+                                                        "no complaints in the 12 months before",
+                                                        "3+ complaints, never in the top 100",
+                                                        "3+ complaints, best rank 21-100"],
+                                             "recalls": [719, 522, 280, 102], "share": [0.44, 0.32, 0.17, 0.06]}),
+        "label_audit_misses": pd.DataFrame({"match": ["model-name variant", "recall 6-12 months out"],
+                                            "misses": [16, 50], "share": [0.025, 0.078]}),
+        "agent_complaints": pd.DataFrame({"brief_id": BRIEF_IDS, "odino": ["111", "111"],
+                                          "received_date": ["2024-11-29", "2024-11-29"],
+                                          "excerpt": ["The screen went black on the highway."] * 2}),
+        "agent_monthly": pd.DataFrame({"brief_id": [b for b in BRIEF_IDS for _ in range(2)],
+                                       "month": ["2024-11-01", "2024-12-01"] * 2, "complaints": [2.0, 5.0] * 2}),
+        "agent_brief_stats": pd.DataFrame({"brief_id": BRIEF_IDS, "complaints_on_file": [31, 31]}),
+    }
+    tables["_examples"] = examples
+    normalized = {k: D._normalize(v) for k, v in tables.items() if not k.startswith("_")}
     tables["v_headline_metrics"] = D.headline_from_tables(normalized)
     return tables
 
 
 @pytest.fixture(autouse=True)
-def clean(monkeypatch):
-    monkeypatch.delenv("VSE_DATA", raising=False)
-    from app import agent_data
-
-    details = {b: {"complaints_on_file": 31,
-                   "monthly": [{"month": "2024-11-01", "complaints": 2.0}, {"month": "2024-12-01", "complaints": 5.0}],
-                   "cited": {"111": {"date": "2024-11-29", "excerpt": "The screen went black on the highway."}}}
-               for b in BRIEF_IDS}
-    monkeypatch.setattr(agent_data, "load", lambda briefs, citations, live=True: (details, "local"))
+def clean(monkeypatch, tmp_path):
+    for var in ("VSE_DATA", "FORCE_MODE"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("VSE_SNAPSHOT_REMOTE", "0")                 # no network
+    monkeypatch.setenv("VSE_SNAPSHOT_DIR", str(tmp_path / "none"))  # no saved copy unless a test makes one
+    examples = fake_tables()["_examples"]
+    monkeypatch.setattr(D, "load_local_examples", lambda: examples.copy())
+    monkeypatch.setattr(D, "_bq_expiry", lambda: None)
     st.cache_data.clear()
     yield
     st.cache_data.clear()
@@ -135,6 +168,17 @@ def fake_local(monkeypatch, tables, broken=()):
             return tables[name].copy()
         return build
     monkeypatch.setattr(D, "LOCAL_LOADERS", {n: loader(n) for n in D.LOCAL_LOADERS})
+
+
+def save_snapshot(folder, tables, final=False):
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in D.SOURCES:
+        if name in tables:
+            tables[name].to_parquet(folder / f"{name}.parquet", index=False)
+    import json
+    (folder / "manifest.json").write_text(json.dumps({
+        "final": final, "frozen_at": "2027-01-15T18:00:00+00:00", "last_updated": "2026-11-21T09:25:47+00:00",
+        "bq_expires_at": "2027-01-18T06:02:02+00:00", "source": "test", "tables": {}}))
 
 
 def run_app(state: dict | None = None) -> AppTest:
@@ -289,8 +333,8 @@ def test_vse_data_local_skips_bigquery(monkeypatch):
     assert "switched off" in text(at)
 
 
-@pytest.mark.parametrize("name", ["waymo_demo_examples", "agent_citations", "recall_audit",
-                                  "v_watchlist_with_briefs", "recall_metrics", "waymo_results"])
+@pytest.mark.parametrize("name", ["agent_citations", "recall_audit", "v_watchlist_with_briefs",
+                                  "recall_metrics", "waymo_results", "agent_complaints", "dataset_facts"])
 def test_missing_table_shows_notice_and_other_tabs_still_work(monkeypatch, name):
     tables = fake_tables()
     fake_bigquery(monkeypatch, tables, broken={name})
@@ -304,7 +348,7 @@ def test_missing_table_shows_notice_and_other_tabs_still_work(monkeypatch, name)
         at.run()
         assert not at.exception, (tab, [e.message for e in at.exception])
         notices += [i.body for i in at.info]
-    if name not in ("agent_citations", "recall_audit"):  # these two only shrink a card / drop a tile
+    if name not in ("agent_citations", "recall_audit", "agent_complaints", "dataset_facts"):  # degrade quietly
         assert any(name in n for n in notices), notices
     assert "Data sources" in text(at)  # the last tab (Data and limitations) still renders
 
@@ -388,3 +432,67 @@ def test_palette_meets_wcag_aa():
     for color in theme.ROAD_USER.values():
         assert theme.contrast(color, theme.CARD) >= 4.5, color
     assert theme.contrast(theme.ALERT, theme.CARD) >= 3.0  # alert is only used for large numbers and icons
+
+
+# ---------------------------------------------------------------------------------------------
+# data modes: live / saved copy / final
+
+def test_live_mode_shows_expiry(monkeypatch):
+    tables = fake_tables()
+    fake_bigquery(monkeypatch, tables)
+    from datetime import UTC, datetime
+    monkeypatch.setattr(D, "_bq_expiry", lambda: datetime(2027, 1, 18, 6, 2, tzinfo=UTC))
+
+    page = text(run_app())
+
+    assert "Live results · ends Jan 17, 2027" in page  # Pacific time
+
+
+def test_saved_copy_when_bigquery_fails(monkeypatch, tmp_path):
+    tables = fake_tables()
+    save_snapshot(tmp_path / "snap", tables)
+    monkeypatch.setenv("VSE_SNAPSHOT_DIR", str(tmp_path / "snap"))
+    fake_bigquery(monkeypatch, {}, broken=set(tables), error="403 table expired")
+
+    at = run_app()
+    page = all_tabs_text(at)
+
+    assert "Saved copy · Jan 15, 2027, 10:00 AM PT" in page and "Live data ended" not in page
+    assert "11.8%" in page
+
+
+def test_final_snapshot_wins_even_if_bigquery_works(monkeypatch, tmp_path):
+    tables = fake_tables()
+    save_snapshot(tmp_path / "snap", tables, final=True)
+    monkeypatch.setenv("VSE_SNAPSHOT_DIR", str(tmp_path / "snap"))
+    monkeypatch.setattr(bq_reader, "read_table", lambda *a, **k: pytest.fail("BigQuery used after final"))
+    monkeypatch.setattr(bq_reader, "read_view", lambda *a, **k: pytest.fail("BigQuery used after final"))
+
+    page = all_tabs_text(run_app())
+
+    assert "Live data ended Jan 17, 2027 (BigQuery free tier limit)" in page
+    assert "final copy saved Jan 15, 2027, 10:00 AM PT" in page
+    assert "Data last updated Nov 21, 2026, 1:25 AM PT" in page
+
+
+@pytest.mark.parametrize("mode, expected", [("snapshot", "Saved copy"), ("final", "Live data ended")])
+def test_force_mode_previews(monkeypatch, tmp_path, mode, expected):
+    tables = fake_tables()
+    save_snapshot(tmp_path / "snap", tables)
+    monkeypatch.setenv("VSE_SNAPSHOT_DIR", str(tmp_path / "snap"))
+    monkeypatch.setenv("FORCE_MODE", mode)
+    fake_bigquery(monkeypatch, tables)
+
+    assert expected in text(run_app())
+
+
+def test_public_trajectory_uses_images_not_coordinates(monkeypatch):
+    tables = fake_tables()
+    fake_bigquery(monkeypatch, tables)
+    monkeypatch.setattr(D, "load_local_examples", lambda: None)  # no data/ (public app)
+
+    at = run_app({"main_tab": "Trajectory"})
+
+    assert len(at.get("image")) == 1                # the pre-rendered picture
+    assert not at.get("plotly_chart") or all("Meters ahead" not in str(c.proto) for c in at.get("plotly_chart"))
+    assert "described from their own paths" in text(at)
