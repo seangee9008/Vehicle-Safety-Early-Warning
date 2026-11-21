@@ -24,11 +24,10 @@ OUT = ROOT / "reports" / "figures"
 CONTENT_HEIGHT_JS = """() => Math.max(...[...document.querySelectorAll(
   '[data-testid="stMain"], [data-testid="stAppViewContainer"], section.main, [data-testid="stMainBlockContainer"]'
 )].map(e => e.scrollHeight), document.body.scrollHeight)"""
-TABS = ["Overview", "Recall watchlist", "Investigation brief", "Model results", "Trajectory",
-        "Data and limitations"]
-# (tab, tile key, file name): tile detail views to capture after the tabs
-DETAILS = [("Model results", "results_hit", "demo_detail_hit_rate"),
-           ("Model results", "results_fair", "demo_detail_grading")]
+TABS = ["Overview", "Recall watchlist", "AI agent", "Model results", "Trajectory", "Data and limitations"]
+# (tab, key of the button that opens the view, key of its back button, file name)
+DETAILS = [("AI agent", "agent_open_2024-12-r06", "agent_back", "demo_agent_detail"),
+           ("Model results", "open_results_hit", "back_results", "demo_detail_hit_rate")]
 
 
 def free_port() -> int:
@@ -88,12 +87,12 @@ def main() -> int:
             for name in TABS:
                 page.get_by_role("tab", name=name).click()
                 shoot(page, args, f"demo_{name.lower().replace(' ', '_')}")
-            for tab, key, file_name in DETAILS:
+            for tab, open_key, back_key, file_name in DETAILS:
                 page.get_by_role("tab", name=tab).click()
                 page.wait_for_timeout(1000)
-                page.locator(f".st-key-open_{key} button").click()
+                page.locator(f".st-key-{open_key} button").first.click()
                 shoot(page, args, file_name)
-                page.locator(f".st-key-back_{key.split('_')[0]} button").click()
+                page.locator(f".st-key-{back_key} button").click()
                 page.wait_for_timeout(1000)
             browser.close()
     finally:

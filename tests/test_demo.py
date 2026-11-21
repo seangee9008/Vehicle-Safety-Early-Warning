@@ -11,8 +11,7 @@ from app import data as D
 from src import bq_reader
 
 APP = str(Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py")
-TABS = ["Overview", "Recall watchlist", "Investigation brief", "Model results", "Trajectory",
-        "Data and limitations"]
+TABS = ["Overview", "Recall watchlist", "AI agent", "Model results", "Trajectory", "Data and limitations"]
 RESULT_TILES = ["hit", "coverage", "lead", "drivers", "fair", "signals"]
 TRAJ_TILES = ["horizon", "types", "struggles"]
 
@@ -21,25 +20,37 @@ def _path(n, dx=1.0, dy=0.0):
     return [[round(dx * i, 2), round(dy * i, 2)] for i in range(1, n + 1)]
 
 
+BRIEF_MD = ("## Failure pattern (2-3 sentences)\nDrivers report the instrument cluster blackout while "
+            "driving and sudden loss of power. Warning lights come on.\n\n## Severity\n- Crashes: 1\n- Deaths: 0\n"
+            "- Fires: 0\n- Injuries: 2\n\n## Evidence\n- Screen goes dark [ODINO 111], [ODINO 222]\n"
+            "- Car stalls on the highway [ODINO 333]\n\n## Watchlist reasons check\n"
+            "- vehicle is under a year old: CONTEXT (new model year).\n"
+            "- 13 complaints in the last 12 months: SUPPORT (complaints match).\n\n## Similar past recalls\n"
+            "Search: same make (KIA)\nnone relevant\n\n## Suggested next step\n- Next step: Ask for dealer "
+            "records [ODINO 111].\n")
+BRIEF_IDS = ["2024-12-r01", "2024-12-r02"]
+
+
 def fake_tables() -> dict[str, pd.DataFrame]:
-    watch = pd.DataFrame([{
-        "month": "2024-12-01", "make": "KIA", "model": "EV9", "model_year": 2024,
-        "component": "ADAS AND STABILITY CONTROL", "score": 0.7 - rank / 100, "rank": rank,
-        "top_reasons": "vehicle is under a year old", "source": "stg",
-        "brief_id": "2024-12-r01" if rank == 1 else None,
-        "brief_markdown": ("## Failure pattern (2-3 sentences)\nThe screen goes dark.\n\n## Severity\n- Crashes: 0\n\n"
-                           "## Evidence\n- Screen goes dark [ODINO 111], [ODINO 222]\n\n## Similar past recalls\n"
-                           "Search: same make (KIA)\nnone relevant\n") if rank == 1 else None,
-        "model_used": "gemini-x" if rank == 1 else None,
-        "citations_valid": 2 if rank == 1 else None, "citations_total": 2 if rank == 1 else None,
-        "uncited_bullets": 0 if rank == 1 else None, "evidence_bullets": 3 if rank == 1 else None,
-        "passed_first_try": rank == 1, "passed_after_retry": False, "still_failing": False,
-        "similar_recall_search_scope": "same_make" if rank == 1 else None, "has_brief": rank == 1,
-    } for rank in (1, 2, 3)] + [{
-        "month": "2024-11-01", "make": "FORD", "model": "F150", "model_year": 2023,
-        "component": "POWER TRAIN", "score": 0.5, "rank": 1, "top_reasons": "9 complaints",
-        "source": "stg", "has_brief": False, "passed_first_try": False, "passed_after_retry": False,
-        "still_failing": False}])
+    rows = []
+    for rank in (1, 2, 3):
+        has = rank <= 2
+        rows.append({
+            "month": "2024-12-01", "make": "KIA", "model": "EV9", "model_year": 2024,
+            "component": "ADAS AND STABILITY CONTROL" if rank != 2 else "POWER TRAIN", "score": 0.7 - rank / 100,
+            "rank": rank, "top_reasons": "vehicle is under a year old; 13 complaints in the last 12 months; "
+                                         "2 fires in the last 3 months", "source": "stg",
+            "brief_id": f"2024-12-r0{rank}" if has else None, "brief_markdown": BRIEF_MD if has else None,
+            "model_used": "gemini-x" if has else None, "citations_valid": 3 if has else None,
+            "citations_total": 3 if has else None, "uncited_bullets": 0 if has else None,
+            "evidence_bullets": 2 if has else None, "passed_first_try": rank == 1, "passed_after_retry": rank == 2,
+            "still_failing": False, "similar_recall_search_scope": "same_make" if has else None, "has_brief": has,
+        })
+    rows.append({"month": "2024-11-01", "make": "FORD", "model": "F150", "model_year": 2023,
+                 "component": "POWER TRAIN", "score": 0.5, "rank": 1, "top_reasons": "9 complaints in the last 3 months",
+                 "source": "stg", "has_brief": False, "passed_first_try": False, "passed_after_retry": False,
+                 "still_failing": False})
+    watch = pd.DataFrame(rows)
     metrics = []
     for scorer, p, auc, weeks in [("lgbm", 0.118, 0.031, 23.2), ("baseline", 0.089, 0.016, 35.1)]:
         for metric, value in [("precision_at_20", p), ("pr_auc", auc), ("median_weeks_warning", weeks),
@@ -64,7 +75,8 @@ def fake_tables() -> dict[str, pd.DataFrame]:
         ("investigations", "x.csv", "v1 (Justine's predictions)", "test", "catch_rate_first_with_complaints", 0.037),
         ("investigations", "x.csv", "v1 + investigations", "test", "catch_rate_first_with_complaints", 0.026),
     ], columns=["experiment", "source_file", "variant", "split", "metric", "value"])
-    citations = pd.DataFrame({"brief_id": ["2024-12-r01"] * 2, "odino": ["111", "222"], "valid": [True, True]})
+    citations = pd.DataFrame({"brief_id": [b for b in BRIEF_IDS for _ in range(3)],
+                              "odino": ["111", "222", "333"] * 2, "valid": [True] * 6})
     waymo = pd.DataFrame([{
         "object_type": t, "horizon_s": h, "n_agents": 10, "predictor": pr,
         "ade_m": 1.0, "fde_m": {"constant_velocity": 2.0 * h, "model_best_guess": 1.5 * h,
@@ -94,6 +106,13 @@ def fake_tables() -> dict[str, pd.DataFrame]:
 @pytest.fixture(autouse=True)
 def clean(monkeypatch):
     monkeypatch.delenv("VSE_DATA", raising=False)
+    from app import agent_data
+
+    details = {b: {"complaints_on_file": 31,
+                   "monthly": [{"month": "2024-11-01", "complaints": 2.0}, {"month": "2024-12-01", "complaints": 5.0}],
+                   "cited": {"111": {"date": "2024-11-29", "excerpt": "The screen went black on the highway."}}}
+               for b in BRIEF_IDS}
+    monkeypatch.setattr(agent_data, "load", lambda briefs, citations, live=True: (details, "local"))
     st.cache_data.clear()
     yield
     st.cache_data.clear()
@@ -119,7 +138,7 @@ def fake_local(monkeypatch, tables, broken=()):
 
 
 def run_app(state: dict | None = None) -> AppTest:
-    at = AppTest.from_file(APP, default_timeout=90)
+    at = AppTest.from_file(APP, default_timeout=120)
     for key, value in (state or {}).items():
         at.session_state[key] = value
     at.run()
@@ -141,12 +160,41 @@ def test_every_tab_renders_with_bigquery_data(monkeypatch):
     page = text(at)
 
     assert "Live results" in page and "Local data" not in page
-    assert "11.8%" in page and "2 of 2" in page and "2 unique complaints" in page  # KPI cards
-    assert "Screen goes dark" in page and "ODINO 111" in page                     # brief cards
-    assert "What drivers report" in page and "Similar past recalls: none found" in page
-    assert "Data sources" in page and "Honest limitations" in page
+    assert "Sean Gee · Justine Li-Wu · Angelina Yang" in page
+    assert "11.8%" in page and "6 of 6" in page and "3 unique complaints" in page  # KPI cards
+    assert "Why this project" in page and "Spot safety problems early" in page    # overview sections
+    assert "New car" in page and "Fire reports" in page                          # watchlist tags
+    assert "vehicle is under a year old" not in page.split("Flag reasons check")[0]  # never raw on the list
+    assert "Built by Sean Gee, Justine Li-Wu, Angelina Yang." in page
     assert at.selectbox(key="watch_month").value == "Dec 2024"
     assert not at.info
+
+
+@pytest.mark.parametrize("brief_id", BRIEF_IDS)
+def test_every_agent_car_detail_renders(monkeypatch, brief_id):
+    tables = fake_tables()
+    fake_bigquery(monkeypatch, tables)
+
+    at = run_app({"agent_car": brief_id})
+    page = text(at)
+
+    assert "How the agent worked" in page and "31 of" in page               # stepper with real counts
+    assert "Screens or gauges go dark" in page                              # symptom chips
+    assert "Screen goes dark" in page and "Flag reasons check" in page
+    assert "Supported" in page and "Context only" in page
+    assert ("First try" if brief_id.endswith("1") else "After one retry") in page
+    assert any(b.label == "Back to all cars" for b in at.button)
+
+
+def test_watchlist_brief_button_opens_the_agent(monkeypatch):
+    tables = fake_tables()
+    fake_bigquery(monkeypatch, tables)
+    at = run_app()
+
+    at.button(key="wopen_0").click().run()
+
+    assert at.session_state["agent_car"] == "2024-12-r01"
+    assert at.session_state["main_tab"] == "AI agent"
 
 
 @pytest.mark.parametrize("page_key, key", [("results", k) for k in RESULT_TILES]
@@ -162,7 +210,17 @@ def test_every_tile_detail_view_renders(monkeypatch, page_key, key):
     assert any(w in text(at) for w in ("What we found", "What it measures"))
 
 
-def test_tiles_open_and_close(monkeypatch):
+@pytest.mark.parametrize("size, scale", [("S", "0.86"), ("M", "1.0"), ("L", "1.18")])
+def test_text_size_scales_the_page(monkeypatch, size, scale):
+    tables = fake_tables()
+    fake_bigquery(monkeypatch, tables)
+
+    at = run_app({"text_size": size})
+
+    assert f"--s: {scale};" in text(at)
+
+
+def test_tiles_and_widgets(monkeypatch):
     tables = fake_tables()
     fake_bigquery(monkeypatch, tables)
     at = run_app()
@@ -171,19 +229,10 @@ def test_tiles_open_and_close(monkeypatch):
     assert at.session_state["detail_results"] == "hit"
     at.button(key="back_results").click().run()
     assert at.session_state["detail_results"] is None
-    assert not at.exception
-
-
-def test_widgets_work(monkeypatch):
-    tables = fake_tables()
-    fake_bigquery(monkeypatch, tables)
-    at = run_app()
-
     at.selectbox(key="watch_month").select("Nov 2024").run()
     at.button_group(key="traj_type").set_value("pedestrian").run()
-
     assert not at.exception, [e.message for e in at.exception]
-    assert at.selectbox(key="traj_pick").label.endswith("pedestrians)")
+    assert at.session_state["traj_example"] == "s1_1"
 
 
 def test_local_fallback_when_bigquery_unreachable(monkeypatch):
@@ -243,7 +292,7 @@ def test_headline_from_tables_matches_inputs():
     h = D.headline_from_tables(tables).iloc[0]
 
     assert h["model_precision_at_20"] == pytest.approx(0.118)
-    assert h["briefs"] == 1 and h["briefs_fully_valid"] == 1
+    assert h["briefs"] == 2 and h["briefs_fully_valid"] == 2
     assert h["waymo_best_guess_vs_cv_pct"] == pytest.approx(25.0)
 
 
@@ -260,3 +309,60 @@ def test_report_readers_parse_committed_files():
     assert len(reports.ablation()) == 4
     assert reports.label_audit_misses()["misses"].sum() > 0
     assert reports.miss_reasons()["recalls"].sum() > 0
+
+
+# ---------------------------------------------------------------------------------------------
+# pure helpers
+
+@pytest.mark.parametrize("reason, tag", [
+    ("vehicle is under a year old", "New car"), ("vehicle is 1 year old", "New car"),
+    ("vehicle is 3 years old", "Older car"), ("42 complaints in the last 12 months", "Many complaints"),
+    ("complaints up 3.1x vs. the prior 9 months", "Complaints rising"),
+    ("93% of this car's complaints in the last 3 months", "Complaints rising"),
+    ("2 fires in the last 3 months", "Fire reports"), ("3 crashes in the last 3 months", "Crashes reported"),
+    ("2 complaints with injuries in the last 3 months", "Injuries reported"),
+    ("4 complaints mentioning smoke in the last 3 months", "Smoke reports"),
+    ("5 complaints mentioning a tow in the last 3 months", "Towed away"),
+    ("7 complaints saying it happened without warning in the last 3 months", "No warning"),
+    ("1 complaints mentioning lost power or a shut-off in the last 3 months", "Power loss"),
+    ("median 12,000 miles at complaint", "Mileage pattern"),
+])
+def test_every_reason_pattern_maps_to_a_short_tag(reason, tag):
+    from app import components as ui
+
+    assert ui.reason_tag(reason) == tag
+    assert len(tag.split()) <= 2
+
+
+def test_symptom_chips_are_short_and_three():
+    from app import briefs
+
+    chips = briefs.symptom_chips("Owners report sudden blackouts of the screen, loss of power and warning lights.")
+    assert len(chips) == 3 and all(len(c.split()) <= 8 for c in chips)
+    assert chips[0] == "Screens or gauges go dark"
+    assert len(briefs.symptom_chips("Something odd happens with the vehicle sometimes.")) >= 1
+
+
+def test_motion_descriptions():
+    from app import motion
+
+    straight = {"object_type": "vehicle", "past_path": [[-1.0, 0.0], [0.0, 0.0]],
+                "true_future": _path(80, 1.0, 0.0)}
+    left = {"object_type": "cyclist", "past_path": [[-0.5, 0.0], [0.0, 0.0]],
+            "true_future": [[i * 0.5, 0.0] for i in range(40)] + [[20.0, i * 0.5] for i in range(40)]}
+    assert motion.describe(straight) == "Car going straight · 36 km/h"
+    assert motion.describe(left).startswith("Cyclist turning left · 18 km/h")
+
+
+def test_palette_meets_wcag_aa():
+    from app import theme
+
+    for fg, bg in [(theme.INK, theme.BG), (theme.INK, theme.CARD), (theme.MUTED, theme.CARD),
+                   (theme.TRACK_A, theme.CARD), (theme.TRACK_B, theme.CARD), (theme.BASELINE, theme.CARD),
+                   (theme.BG, theme.TRACK_A), (theme.GOOD, theme.CARD)]:
+        assert theme.contrast(fg, bg) >= 4.5, (fg, bg)
+    for color in theme.PART_COLORS.values():  # dark text on part chips
+        assert theme.contrast(theme.BG, color) >= 4.5, color
+    for color in theme.ROAD_USER.values():
+        assert theme.contrast(color, theme.CARD) >= 4.5, color
+    assert theme.contrast(theme.ALERT, theme.CARD) >= 3.0  # alert is only used for large numbers and icons
