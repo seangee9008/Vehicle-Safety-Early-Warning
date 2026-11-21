@@ -1,4 +1,5 @@
-"""Write app/facts.json: dataset sizes the demo shows that aren't in BigQuery.
+"""Write app/facts.json (dataset sizes) and app/agent_snapshot.json (agent details), which the
+demo shows but BigQuery doesn't hold.
 
     python -m app.build_facts
 
@@ -33,6 +34,13 @@ def build() -> dict:
         r_records, campaigns, r_first, r_last = _one(
             con, "SELECT count(*), count(DISTINCT camp_no), min(recall_date), max(recall_date) FROM stg.recalls")
         (investigations,) = _one(con, "SELECT count(DISTINCT ACTION_NUMBER) FROM raw.investigations")
+        # per year, complete calendar years only (the last year in the data is still running)
+        per_year_c = con.sql(f"""
+            SELECT avg(n) FROM (SELECT year(ldate) y, count(DISTINCT odi_no) n FROM stg.complaints
+                                WHERE year(ldate) < year(DATE '{c_last}') GROUP BY 1)""").fetchall()[0][0]
+        per_year_r = con.sql(f"""
+            SELECT avg(n) FROM (SELECT year(recall_date) y, count(DISTINCT camp_no) n FROM stg.recalls
+                                WHERE year(recall_date) < year(DATE '{r_last}') GROUP BY 1)""").fetchall()[0][0]
     preds = (PROCESSED / "predictions_stg.parquet").as_posix()
     per_month, test_first, test_last = _one(duckdb.connect(), f"""
         SELECT avg(n), min(m), max(m) FROM (
@@ -45,9 +53,9 @@ def build() -> dict:
     return {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "complaints": {"complaints": int(complaints), "records": int(records),
-                       "first": str(c_first), "last": str(c_last)},
+                       "first": str(c_first), "last": str(c_last), "per_year": round(float(per_year_c))},
         "recalls": {"campaigns": int(campaigns), "records": int(r_records),
-                    "first": str(r_first), "last": str(r_last)},
+                    "first": str(r_first), "last": str(r_last), "per_year": round(float(per_year_r))},
         "investigations": int(investigations),
         "model": {"car_parts_ranked_per_month": round(float(per_month)),
                   "test_first_month": str(test_first)[:10], "test_last_month": str(test_last)[:10]},
@@ -60,6 +68,16 @@ def main() -> None:
     OUT.write_text(json.dumps(facts, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {OUT.relative_to(ROOT)}")
     print(json.dumps(facts, indent=2))
+
+    import pandas as pd
+
+    from app import agent_data
+    from src import bq_publish
+
+    briefs = pd.DataFrame(bq_publish.build_agent_briefs())
+    citations = pd.DataFrame(bq_publish.build_agent_citations())
+    path = agent_data.write_snapshot(briefs, citations)
+    print(f"wrote {path.relative_to(ROOT)} ({len(briefs)} briefs)")
 
 
 if __name__ == "__main__":

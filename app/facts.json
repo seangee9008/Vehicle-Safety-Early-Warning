@@ -1,16 +1,18 @@
 {
-  "generated_at": "2026-11-21T07:40:38+00:00",
+  "generated_at": "2026-11-21T08:27:01+00:00",
   "complaints": {
     "complaints": 1072108,
     "records": 1487991,
     "first": "2010-01-01",
-    "last": "2026-11-16"
+    "last": "2026-11-16",
+    "per_year": 62676
   },
   "recalls": {
     "campaigns": 13621,
     "records": 219987,
     "first": "2010-01-01",
-    "last": "2026-10-29"
+    "last": "2026-10-29",
+    "per_year": 808
   },
   "investigations": 5355,
   "model": {

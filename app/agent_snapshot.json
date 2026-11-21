@@ -1,0 +1,659 @@
+{
+ "generated_at": "2026-11-21T08:27:02+00:00",
+ "briefs": {
+  "2024-12-r01": {
+   "complaints_on_file": 13,
+   "monthly": [
+    {
+     "month": "2024-11-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-12-01",
+     "complaints": 12.0
+    }
+   ],
+   "cited": {
+    "11631671": {
+     "date": "2024-12-19",
+     "excerpt": "The automatic pilot computer (AP4) failed on my 2025 Tesla Model Y after approximately 400 miles. This controls a lot of the vehicle's auto pilot features but it also\u2026"
+    },
+    "11631875": {
+     "date": "2024-12-20",
+     "excerpt": "Computer system failure causing all cameras to fail, mirrors to stay darkened even in daylight, navigation system not updating, collision and lane departure feature\u2026"
+    },
+    "11631016": {
+     "date": "2024-12-16",
+     "excerpt": "The camera and GPS failed with 3 weeks of taking possession of this new lease. After several days in the shop, TESLA informed me THE MAIN computer was broken and needed\u2026"
+    },
+    "11631682": {
+     "date": "2024-12-19",
+     "excerpt": "What component or system failed or malfunctioned, and is it available for inspection upon request? There were multiple component and system failures that were\u2026"
+    },
+    "11632249": {
+     "date": "2024-12-24",
+     "excerpt": "Automatic Emergency braking stopped working. Parking assist stopped working. Back window is dismal. You can't see anything behind through the window. All cameras stopped\u2026"
+    },
+    "11631939": {
+     "date": "2024-12-21",
+     "excerpt": "All cameras and related functions stopped working, including back up camera. GPS is not working. Tesla pushed back my service appointment until 1/21/25. Safety is an\u2026"
+    },
+    "11631362": {
+     "date": "2024-12-18",
+     "excerpt": "Here is my draft: Vehicle Information: \u00e2\u0080\u00a2 Make: Tesla \u00e2\u0080\u00a2 Model: Model Y \u00e2\u0080\u00a2 Year: 2025 Description of the Problem: After a software update pushed by Tesla, the AP4\u2026"
+    },
+    "11627913": {
+     "date": "2024-11-29",
+     "excerpt": "We were Driving East on I-40 at mile marker 245 Friday Nov 29 2024 around 8:50am in the right lane. We were passed by a gray Ford F-150 on the left. We had the \"Traffic\u2026"
+    },
+    "11631176": {
+     "date": "2024-12-17",
+     "excerpt": "On or around December 1 2024, the **AP4 computer** in my 2025 Tesla Model Y shorted out, causing a **complete failure** of all systems controlled by this computer. The\u2026"
+    },
+    "11632359": {
+     "date": "2024-12-25",
+     "excerpt": "I took delivery of the Tesla Model Y yesterday (12/24/2024). The car has 73 miles on it as of now. First, the rear view camera stops working this morning (12/25/2024)\u2026"
+    }
+   }
+  },
+  "2024-12-r02": {
+   "complaints_on_file": 99,
+   "monthly": [
+    {
+     "month": "2024-02-01",
+     "complaints": 2.0
+    },
+    {
+     "month": "2024-03-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-04-01",
+     "complaints": 5.0
+    },
+    {
+     "month": "2024-05-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-06-01",
+     "complaints": 3.0
+    },
+    {
+     "month": "2024-07-01",
+     "complaints": 3.0
+    },
+    {
+     "month": "2024-08-01",
+     "complaints": 4.0
+    },
+    {
+     "month": "2024-09-01",
+     "complaints": 3.0
+    },
+    {
+     "month": "2024-10-01",
+     "complaints": 5.0
+    },
+    {
+     "month": "2024-11-01",
+     "complaints": 3.0
+    },
+    {
+     "month": "2024-12-01",
+     "complaints": 69.0
+    }
+   ],
+   "cited": {
+    "11632966": {
+     "date": "2024-12-29",
+     "excerpt": "After a software update pushed by Tesla, the AP4 computer in my 2024 Tesla Model Y shorted out, causing a complete failure of all systems controlled by this computer.\u2026"
+    },
+    "11633036": {
+     "date": "2024-12-30",
+     "excerpt": "The FSD feature for which we have paid in full to Tesla does not work. No cruise control and no Assisted Steering Control or Cruise Control works. As per their Service\u2026"
+    },
+    "11633102": {
+     "date": "2024-12-30",
+     "excerpt": "Vehicle Information: \u00e2\u0080\u00a2 Make: Tesla \u00e2\u0080\u00a2 Model: Model Y \u00e2\u0080\u00a2 Year: 2024 Description of the Problem: After a software update pushed by Tesla, the AP4 computer in my 2024\u2026"
+    },
+    "11633379": {
+     "date": "2024-12-31",
+     "excerpt": "Around Dec 16 all cameras in my 2024 Model Y Tesla stopped working and it has not worked since that date. This affects many systems, the most important of which is that\u2026"
+    }
+   }
+  },
+  "2024-12-r03": {
+   "complaints_on_file": 54,
+   "monthly": [
+    {
+     "month": "2024-07-01",
+     "complaints": 4.0
+    },
+    {
+     "month": "2024-08-01",
+     "complaints": 43.0
+    },
+    {
+     "month": "2024-09-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-10-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-11-01",
+     "complaints": 7.0
+    },
+    {
+     "month": "2024-12-01",
+     "complaints": 0.0
+    }
+   ],
+   "cited": {
+    "11607728": {
+     "date": "2024-08-10",
+     "excerpt": "The battery on my new Kia Carnival 2025 SX has repeatedly died within the first few weeks of ownership. There seems to be some issue causing it to drain within 2-3 days.\u2026"
+    },
+    "11606477": {
+     "date": "2024-08-05",
+     "excerpt": "Parasitic battery drain. Battery dead at 244 miles when left in garage for two nights with no explanation of drain."
+    },
+    "11607702": {
+     "date": "2024-08-10",
+     "excerpt": "New 2025 Carnival SXP that has been taken back to the dealer on 2 separate occasions in the first 2 weeks of owning the vehicle. The battery has died 4 times with no\u2026"
+    },
+    "11627633": {
+     "date": "2024-11-27",
+     "excerpt": "While driving at highway speeds the exterior and interior lighting/electrial system shut down completely. My headlights shut off, as well as all electrical/lighting\u2026"
+    },
+    "11608327": {
+     "date": "2024-08-13",
+     "excerpt": "Brand New 2025 KIA Carnival SX model - experiencing major electrical failure within the first month (around 800 miles). There's a battery negative draw issue, and the\u2026"
+    },
+    "11610202": {
+     "date": "2024-08-22",
+     "excerpt": "The battery on this car drains despite standard operation. Battery replacements do not work and it must be jumped. Some programming aspect clearly is wrong and drains\u2026"
+    },
+    "11610104": {
+     "date": "2024-08-21",
+     "excerpt": "After day or two purchasing the car, I started getting notifications at the car battery was low eventually after two weeks it completely died, and I was locked out with\u2026"
+    },
+    "11625838": {
+     "date": "2024-11-18",
+     "excerpt": "Brand new car and the battery is draining. Leaving the vehicle unable to start."
+    },
+    "11607684": {
+     "date": "2024-08-10",
+     "excerpt": "Vehicle sat in my garage in for 2 days and when I went to go drive, I found the vehicle was dead and had to be jumped. The vehicle currently has 370 miles on it and when\u2026"
+    },
+    "11607740": {
+     "date": "2024-08-10",
+     "excerpt": "After a week of owning the car the battery died over night. Was jumped by roadside and died later that day and jumped again. After the 2nd jump, the AC and air bags\u2026"
+    },
+    "11607738": {
+     "date": "2024-08-10",
+     "excerpt": "On July 19, 2024, my 2025 Kia Carnival SXP experienced a significant battery drainage issue, rendering the vehicle inoperable. The cause is currently unknown, but it\u2026"
+    },
+    "11606474": {
+     "date": "2024-08-05",
+     "excerpt": "I have a dead brand new car after not driving it for 3 days. And, the dealer is unable to tell me how to get into it because the key fob does not have a physical key in\u2026"
+    }
+   }
+  },
+  "2024-12-r04": {
+   "complaints_on_file": 9,
+   "monthly": [
+    {
+     "month": "2024-07-01",
+     "complaints": 3.0
+    },
+    {
+     "month": "2024-08-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-09-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-10-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-11-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-12-01",
+     "complaints": 3.0
+    }
+   ],
+   "cited": {
+    "11629026": {
+     "date": "2024-12-05",
+     "excerpt": "With only 1017 miles on vehicle, the transmission leaked all of the fluid out. Incident happened on a side street, thankfully not on the freeway as this would have been\u2026"
+    },
+    "11628596": {
+     "date": "2024-12-03",
+     "excerpt": "The contact owns a 2024 Chevrolet Traverse. The contact stated that there was fluid leaking from the vehicle onto the driveway. There were no warning lights illuminated.\u2026"
+    },
+    "11613539": {
+     "date": "2024-09-09",
+     "excerpt": "With 103 miles on odometer, vehicle check engine light illuminated, warning message appeared on DIC regarding reduced acceleration, then vehicle proceed to downshift\u2026"
+    },
+    "11604924": {
+     "date": "2024-07-27",
+     "excerpt": "The transmission suddenly failed on this vehicle. I was later informed that it was the clutch piston. Fortunately, the failure occurred at a stop light when I attempted\u2026"
+    },
+    "11629162": {
+     "date": "2024-12-06",
+     "excerpt": "The contact owns a 2024 Chevrolet Traverse. The contact stated while driving at various speeds, the check engine warning light illuminated on the instrument panel. The\u2026"
+    },
+    "11600178": {
+     "date": "2024-07-08",
+     "excerpt": "On May 14 a service bulletin was released by GM for an issue with the transmission #N242446290 causing a reduced acceleration suddenly and finally zero acceleration\u2026"
+    },
+    "11618149": {
+     "date": "2024-10-04",
+     "excerpt": "I was stopped at a red light in rush hour traffic in the middle of three lanes. When the traffic light turned green, I pressed the accelerator and the engine revved, but\u2026"
+    }
+   }
+  },
+  "2024-12-r05": {
+   "complaints_on_file": 16,
+   "monthly": [
+    {
+     "month": "2024-04-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-05-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-06-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-07-01",
+     "complaints": 2.0
+    },
+    {
+     "month": "2024-08-01",
+     "complaints": 4.0
+    },
+    {
+     "month": "2024-09-01",
+     "complaints": 2.0
+    },
+    {
+     "month": "2024-10-01",
+     "complaints": 3.0
+    },
+    {
+     "month": "2024-11-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-12-01",
+     "complaints": 2.0
+    }
+   ],
+   "cited": {
+    "11622839": {
+     "date": "2024-10-30",
+     "excerpt": "While driving through Wisconsin on [XXX] with Super Cruise activated in 70MPH traffic the car provided me with driver's side collision warning failure notice and then a\u2026"
+    },
+    "11587209": {
+     "date": "2024-05-06",
+     "excerpt": "The automatic collision system braking is engaging when the vehicle is in reverse and while it is raining. This occurs multiple times while trying to back the vehicle up\u2026"
+    },
+    "11631847": {
+     "date": "2024-12-20",
+     "excerpt": "At multiple times when raining, the Automatic emergency braking system activated for no apparent reason as no hazard could be determined."
+    },
+    "11628920": {
+     "date": "2024-12-04",
+     "excerpt": "While we're driving the vehicle the adaptive cruse control was on. As we approached a vehicle ours started to slow down from 55mph to where it almost braked all the way\u2026"
+    },
+    "11604789": {
+     "date": "2024-07-26",
+     "excerpt": "When approaching a red light at 5-10mph, I engaged the brakes, but the brakes did not work and the automatic breaking didn't work either, leading me to rear end the car\u2026"
+    },
+    "11620967": {
+     "date": "2024-10-21",
+     "excerpt": "Ref: NHTSA ID# 24V589/ GM Recall N242453471 Record shows that the above recall was completed on August 27, 2024. Yesterday while I was reversing my 2024 LYRIQ out of my\u2026"
+    },
+    "11608499": {
+     "date": "2024-08-14",
+     "excerpt": "I was driving the vehicle and it stopped in the middle of the freeway. Another incident happened while Kane changing and another while exiting . All three incidents\u2026"
+    }
+   }
+  },
+  "2024-12-r06": {
+   "complaints_on_file": 31,
+   "monthly": [
+    {
+     "month": "2024-04-01",
+     "complaints": 2.0
+    },
+    {
+     "month": "2024-05-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-06-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-07-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-08-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-09-01",
+     "complaints": 8.0
+    },
+    {
+     "month": "2024-10-01",
+     "complaints": 13.0
+    },
+    {
+     "month": "2024-11-01",
+     "complaints": 2.0
+    },
+    {
+     "month": "2024-12-01",
+     "complaints": 5.0
+    }
+   ],
+   "cited": {
+    "11619402": {
+     "date": "2024-10-11",
+     "excerpt": "I am reporting a critical safety issue with my KIA EV9. The vehicle's information screen, which displays essential driving data such as vehicle speed, cruise control\u2026"
+    },
+    "11633059": {
+     "date": "2024-12-30",
+     "excerpt": "Vehicles accelerates aggressively to no limit (95+) when adaptive cruise control is set and there is no leading vehicle within following range."
+    },
+    "11617051": {
+     "date": "2024-09-28",
+     "excerpt": "The car has a screen which contains the speedometer, battery charge level, odometer miles, turn signal operation and other information including the parking collision\u2026"
+    },
+    "11621242": {
+     "date": "2024-10-22",
+     "excerpt": "When the vehicle is in adaptive cruise mode and tracking a lane with Lane Keeping Assistance, if the lines on the road widen beyond a certain point (perhaps 3-5ft wider\u2026"
+    },
+    "11632760": {
+     "date": "2024-12-27",
+     "excerpt": "Active lane keeping function feature disengages without audible warning leading to multiple near collisions. Happens without warning or any particular trigger. Was\u2026"
+    },
+    "11621437": {
+     "date": "2024-10-23",
+     "excerpt": "I recently had recall 24V693000 completed on my vehicle. After the recall while using the remote vehicle movement feature it no longer stops at all. While demonstrating\u2026"
+    },
+    "11623295": {
+     "date": "2024-11-02",
+     "excerpt": "Dashboard shows a message\" Stop vehicle and check brake system\", vehicle doesn't pass over the 10 mph. On the KIA access APP I have all this 6 Diagnostic Issues : FR_CMR\u2026"
+    },
+    "11628948": {
+     "date": "2024-12-04",
+     "excerpt": "My EV9 lunged forward very abruptly when I was parking. I had to slam on the brakes before my vehicle crashed into the building in front of me. My vehicle also lost the\u2026"
+    },
+    "11626679": {
+     "date": "2024-11-21",
+     "excerpt": "On November 5th, 2024 I exited a store and my vehicle instrument panel was black when I turned my vehicle on. I turned my vehicle off and on several times trying to get\u2026"
+    },
+    "11628852": {
+     "date": "2024-12-04",
+     "excerpt": "Over 10 times I've had errors come up on dashboard about sensor systems that are not working. Cat has been taken in 5 times for this with no resolution. I can provide\u2026"
+    },
+    "11618038": {
+     "date": "2024-10-04",
+     "excerpt": "The lane assist feature will not turn off. It also behave erratic. Today on the highway it lurched me towards an empty flatbed semi. It will also pull towards oncoming\u2026"
+    },
+    "11615508": {
+     "date": "2024-09-19",
+     "excerpt": "The main display panel that shows the speed, turn signal info, blind spot monitoring, and many other things just intermittently dies. According to many posts within\u2026"
+    },
+    "11618989": {
+     "date": "2024-10-09",
+     "excerpt": "The screen that shows speed, miles remaining, etc. went black on a long trip. All of the automated cruise control, lane keeping, etc. are also housed in that screen. The\u2026"
+    }
+   }
+  },
+  "2024-12-r07": {
+   "complaints_on_file": 7,
+   "monthly": [
+    {
+     "month": "2024-08-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-09-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-10-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-11-01",
+     "complaints": 2.0
+    },
+    {
+     "month": "2024-12-01",
+     "complaints": 4.0
+    }
+   ],
+   "cited": {
+    "11609909": {
+     "date": "2024-08-21",
+     "excerpt": "The emergency collision avoidance braking automatically activated for no reason. Twice it happened at highway speed, once at 65 mph, once at 55 mph. On the one occasion\u2026"
+    },
+    "11628465": {
+     "date": "2024-12-03",
+     "excerpt": "The Blazer EV 2024 completely SHUT OFF while I was driving at an incline while motorist were accelerating behind me I was about .05 miles from the freeway where I was\u2026"
+    },
+    "11630427": {
+     "date": "2024-12-12",
+     "excerpt": "I have had the car for 3 weeks and twice it has slammed on the brakes for an instant at slow speed. Both times I was at least 20 feet behind another vehicle travelling\u2026"
+    },
+    "11633358": {
+     "date": "2024-12-31",
+     "excerpt": "The emergency brakes engaging in reverse and while in drive. Not available for inspection as the vehicle is now totaled. It was involved in a rollover accident. I\u2026"
+    },
+    "11628737": {
+     "date": "2024-12-04",
+     "excerpt": "This vehicle massively underperforming based on what was told to me at the time of sale (250\u00e2\u0080\u0093300-mile range), I have never come even close to that range. I am\u2026"
+    },
+    "11623846": {
+     "date": "2024-11-06",
+     "excerpt": "Automatic emergency braking engages violently on occasions when there is no obstruction present. It has left me at times with my vehicle stationary half way into a high\u2026"
+    }
+   }
+  },
+  "2024-12-r08": {
+   "complaints_on_file": 4,
+   "monthly": [
+    {
+     "month": "2024-10-01",
+     "complaints": 2.0
+    },
+    {
+     "month": "2024-11-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-12-01",
+     "complaints": 2.0
+    }
+   ],
+   "cited": {
+    "11619762": {
+     "date": "2024-10-14",
+     "excerpt": "After I engage the right turn signal and complete a right turn, it occasionally bounces the turn signal back too hard and then the \"soft\" (not fully clicked in) and\u2026"
+    },
+    "11622116": {
+     "date": "2024-10-26",
+     "excerpt": "Was driving down the road with a sudden loss of power to the infotainment system plus dashboard resulting in all black and being unable to see your speed/turn signals.\u2026"
+    },
+    "11629581": {
+     "date": "2024-12-09",
+     "excerpt": "Infotainment and Main Driver Information Center blank. While driving on highway Infotainments screen went blank followed by the Main Driver Information Center. Problem\u2026"
+    },
+    "11632936": {
+     "date": "2024-12-29",
+     "excerpt": "Both the speedometer/digital information center and radio went black while driving. I had no access to either of these for about 5-7 seconds. I had cruise control set at\u2026"
+    }
+   }
+  },
+  "2024-12-r09": {
+   "complaints_on_file": 35,
+   "monthly": [
+    {
+     "month": "2024-05-01",
+     "complaints": 3.0
+    },
+    {
+     "month": "2024-06-01",
+     "complaints": 3.0
+    },
+    {
+     "month": "2024-07-01",
+     "complaints": 4.0
+    },
+    {
+     "month": "2024-08-01",
+     "complaints": 8.0
+    },
+    {
+     "month": "2024-09-01",
+     "complaints": 7.0
+    },
+    {
+     "month": "2024-10-01",
+     "complaints": 6.0
+    },
+    {
+     "month": "2024-11-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-12-01",
+     "complaints": 4.0
+    }
+   ],
+   "cited": {
+    "11622027": {
+     "date": "2024-10-25",
+     "excerpt": "When I was driving my new truck the transmission failed. It would not change gears forward or reverse. The RMP started ramping up in the red. Check engine light on drive\u2026"
+    },
+    "11619736": {
+     "date": "2024-10-14",
+     "excerpt": "What component or system failed or malfunctioned, and is it available for inspection upon request? Transmission, and yes its available for inspection. When I put the\u2026"
+    },
+    "11621730": {
+     "date": "2024-10-24",
+     "excerpt": "When starting from a stop on at a stop light on a steep hill, the truck did not accelerate and started rolling backward almost hitting multiple vehicles. I was able to\u2026"
+    },
+    "11629121": {
+     "date": "2024-12-05",
+     "excerpt": "I bought the truck at 6 pm on [XXX] in Pennsylvania and drove straight home in Brooklyn, when trying to find a parking spot the truck started to act weird(10pm after 190\u2026"
+    },
+    "11617480": {
+     "date": "2024-10-01",
+     "excerpt": "\u00e2\u0097\u008fIt makes a lot of vibration uphill 25-40mph. \u00e2\u0097\u008fIt feels like hunting gear when it\u00c3\u00b1s shifting to the second gear. \u00e2\u0097\u008fit got stock in second gear in the middle of the\u2026"
+    },
+    "11628702": {
+     "date": "2024-12-03",
+     "excerpt": "My new 2024 Toyota Tacoma TRD Pro with 2440 miles experienced a transmission failure as I was driving up a mountain highway. I lost most propulsion of the vehicle with\u2026"
+    },
+    "11630969": {
+     "date": "2024-12-16",
+     "excerpt": "Stopping at a stop light, after coming to a complete stop, vehicle will want to slowly creep forward and you need to press a little harder on the brake pedal. If you\u2026"
+    },
+    "11630374": {
+     "date": "2024-12-12",
+     "excerpt": "My 2024 Tacoma SR5 was stuttering and felt like the wheels are locking up when I accelerate I have to go very slow because when going anything over 30 MPH feels very\u2026"
+    }
+   }
+  },
+  "2024-12-r10": {
+   "complaints_on_file": 9,
+   "monthly": [
+    {
+     "month": "2024-02-01",
+     "complaints": 2.0
+    },
+    {
+     "month": "2024-03-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-04-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-05-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-06-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-07-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-08-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-09-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-10-01",
+     "complaints": 1.0
+    },
+    {
+     "month": "2024-11-01",
+     "complaints": 0.0
+    },
+    {
+     "month": "2024-12-01",
+     "complaints": 3.0
+    }
+   ],
+   "cited": {
+    "11586971": {
+     "date": "2024-05-04",
+     "excerpt": "1) Car shuts off automatically when driving. The only option to start engine again is to shut off the engine and restart. 2) Car hesitate when gas engine is\u2026"
+    },
+    "11620264": {
+     "date": "2024-10-16",
+     "excerpt": "On the night of [XXX], I was driving on [XXX] with my husband. I lost the ability to steer, accelerate, shift and brake the car. I was able to blast the horn or I\u2026"
+    },
+    "11574396": {
+     "date": "2024-02-28",
+     "excerpt": "This report involves a vehicle that was leased new from a dealership less a week ago. This vehicle has barely 200 miles on the odometer. While driving in electric mode,\u2026"
+    },
+    "11629394": {
+     "date": "2024-12-07",
+     "excerpt": "2024 Jeep grand cherokee 4xe Loss of power while driving. currently has about 4600 miles on it but having issues entire time of ownership. Also been experiencing very\u2026"
+    },
+    "11630275": {
+     "date": "2024-12-12",
+     "excerpt": "On December 8, 2024, I was driving my car and put it in reverse to back into a parking space, when the car jerked to a stop and shut down. The vehicle went into some\u2026"
+    }
+   }
+  }
+ }
+}
