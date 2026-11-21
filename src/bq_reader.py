@@ -5,7 +5,7 @@
     watchlist = read_table("watchlist")                  # pandas DataFrame
     with_briefs = read_view("v_watchlist_with_briefs")
     headline = read_view("v_headline_metrics").iloc[0]
-    examples = read_table("waymo_demo_examples")         # JSON columns come back as Python lists
+    excerpts = read_table("agent_complaints")            # cited complaints: date + short excerpt
 
 Needs Google credentials once per laptop: ``gcloud auth application-default login``, and the
 project owner (Sean) must have given your Google account BigQuery Data Viewer + Job User on
@@ -15,6 +15,8 @@ Only SELECT queries are run; nothing here can change a table.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import json
 
 import pandas as pd
@@ -23,7 +25,9 @@ PROJECT = "waymo-project-513802"
 DATASET = "vehicle_safety"
 LOCATION = "US"
 TABLES = ("watchlist", "recall_metrics", "recall_audit", "agent_briefs", "agent_citations",
-          "waymo_results", "waymo_demo_examples", "publish_log")
+          "waymo_results", "publish_log", "dataset_facts", "recall_ablation", "recall_overlap",
+          "recall_miss_reasons", "label_audit_misses", "agent_complaints", "agent_monthly",
+          "agent_brief_stats")
 VIEWS = ("v_watchlist_with_briefs", "v_headline_metrics")
 JSON_COLUMNS = ("past_path", "true_future", "baseline_path", "model_paths", "model_confidences",
                 "lane_polylines")
@@ -85,3 +89,19 @@ def read_view(name: str, limit: int | None = None, timeout: float | None = None)
 
 def list_tables() -> list[str]:
     return list(TABLES + VIEWS)
+
+
+def dataset_expiry(timeout: float | None = 20) -> datetime | None:
+    """Earliest expiration time of any table in the dataset (sandbox tables expire; views don't),
+    read from BigQuery's table metadata. None if no table has one."""
+    from google.api_core.exceptions import Forbidden, NotFound
+    from google.auth.exceptions import RefreshError
+
+    try:
+        items = list(get_client().list_tables(f"{PROJECT}.{DATASET}", timeout=timeout))
+    except (RefreshError, Forbidden) as error:
+        raise RuntimeError(_AUTH_HELP) from error
+    except NotFound as error:
+        raise RuntimeError(f"dataset {DATASET} not found (expired or never published)") from error
+    expiries = [t.expires for t in items if getattr(t, "expires", None)]
+    return min(expiries) if expiries else None

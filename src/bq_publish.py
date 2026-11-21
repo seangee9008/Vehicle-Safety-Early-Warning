@@ -247,6 +247,98 @@ def build_waymo_demo_examples() -> list[dict[str, Any]]:
     return json.loads(WAYMO_DEMO.read_text(encoding="utf-8"))
 
 
+# small final tables the public demo needs (so it never reads local data)
+
+FACTS = ROOT / "app" / "facts.json"
+
+
+def _flatten(prefix: str, value: Any, out: list[dict[str, Any]]) -> None:
+    if isinstance(value, dict):
+        for k, v in value.items():
+            _flatten(f"{prefix}.{k}" if prefix else k, v, out)
+    else:
+        out.append({"key": prefix, "value": str(value)})
+
+
+def build_dataset_facts() -> list[dict[str, Any]]:
+    """app/facts.json (python -m app.build_facts) flattened, plus the agent's complaint limit."""
+    if not FACTS.exists():
+        raise PublishRefused("app/facts.json missing: run python -m app.build_facts")
+    rows: list[dict[str, Any]] = []
+    _flatten("", json.loads(FACTS.read_text(encoding="utf-8")), rows)
+    from src.agent.brief import COMPLAINT_LIMIT
+
+    rows.append({"key": "agent.read_limit", "value": str(COMPLAINT_LIMIT)})
+    return rows
+
+
+def _reports():
+    from app import reports
+
+    return reports
+
+
+def build_recall_ablation() -> list[dict[str, Any]]:
+    df = _reports().ablation()
+    if df is None:
+        raise PublishRefused("reports/recall_results_stg.md has no age vs complaints table")
+    return [{"model": r["model"], "hit_rate_20": _clean(r["hit_rate_20"]), "hit_rate_100": _clean(r["hit_rate_100"]),
+             "pr_auc": _clean(r["pr_auc"])} for r in df.to_dict("records")]
+
+
+OVERLAP_INT = ("top", "caught_by_both", "only_baseline", "only_lgbm", "both_lgbm_earlier", "both_same_month",
+               "both_lgbm_later")
+OVERLAP_FLOAT = ("both_median_weeks_baseline", "both_median_weeks_lgbm", "only_baseline_median_weeks",
+                 "only_lgbm_median_weeks")
+
+
+def build_recall_overlap() -> list[dict[str, Any]]:
+    df = pd.read_csv(REPORTS / "recall_overlap_stg.csv")
+    return [{**{c: int(r[c]) for c in OVERLAP_INT}, **{c: _clean(float(r[c])) for c in OVERLAP_FLOAT}}
+            for r in df.to_dict("records")]
+
+
+def build_recall_miss_reasons() -> list[dict[str, Any]]:
+    df = pd.read_csv(REPORTS / "recall_miss_reasons_stg.csv")
+    return [{"reason": r["reason"], "recalls": int(r["recalls"]), "share": float(r["share"])}
+            for r in df.to_dict("records")]
+
+
+def build_label_audit_misses() -> list[dict[str, Any]]:
+    df = _reports().label_audit_misses()
+    if df is None:
+        raise PublishRefused("reports/label_audit.md has no misses table")
+    return [{"match": r["match"], "misses": int(r["misses"]), "share": float(r["share"])} for r in df.to_dict("records")]
+
+
+_AGENT_DETAILS: dict[str, Any] = {}
+
+
+def _agent_details() -> dict[str, Any]:
+    """Complaints on file, monthly counts and cited excerpts for each brief (local DuckDB, read-only)."""
+    if not _AGENT_DETAILS:
+        from app import agent_data
+
+        briefs = pd.DataFrame(build_agent_briefs())
+        citations = pd.DataFrame(build_agent_citations())
+        _AGENT_DETAILS.update(agent_data.build_live(briefs, citations))
+    return _AGENT_DETAILS
+
+
+def build_agent_complaints() -> list[dict[str, Any]]:
+    return [{"brief_id": b, "odino": o, "received_date": c["date"], "excerpt": c["excerpt"]}
+            for b, d in _agent_details().items() for o, c in d["cited"].items()]
+
+
+def build_agent_monthly() -> list[dict[str, Any]]:
+    return [{"brief_id": b, "month": m["month"], "complaints": float(m["complaints"])}
+            for b, d in _agent_details().items() for m in d["monthly"]]
+
+
+def build_agent_brief_stats() -> list[dict[str, Any]]:
+    return [{"brief_id": b, "complaints_on_file": int(d["complaints_on_file"])} for b, d in _agent_details().items()]
+
+
 # ---------------------------------------------------------------------------------------------
 # table catalog: explicit schemas with descriptions
 
@@ -333,26 +425,53 @@ TABLES: dict[str, Table] = {t.name: t for t in [
            _c("fde_per_m_median", "FLOAT64", "8 s only: median of FDE / metres travelled"),
            _c("fde_improvement_vs_cv_pct", "FLOAT64", "100 * (1 - FDE / constant-velocity FDE); null for CV")),
           build_waymo_results),
-    Table("waymo_demo_examples",
-          "50 test agents (25 vehicles, 15 pedestrians, 10 cyclists) with paths to draw in the demo "
-          "without local Waymo data. Agent frame: metres, origin = position now, +x = heading now.",
-          (_c("example_id", "STRING", "scenario_id + track_id", "REQUIRED"),
-           _c("scenario_id", "STRING", "Waymo scenario", "REQUIRED"),
-           _c("track_id", "INT64", "Waymo track", "REQUIRED"),
-           _c("object_type", "STRING", "vehicle, pedestrian, cyclist", "REQUIRED"),
-           _c("frame", "STRING", "Coordinate frame of every path"),
-           _c("past_path", "JSON", "11 [x, y] points (-1.0 s .. now), null where invalid"),
-           _c("true_future", "JSON", "80 [x, y] points (0.1 .. 8.0 s), null where invalid"),
-           _c("baseline_path", "JSON", "80 [x, y] constant-velocity points"),
-           _c("model_paths", "JSON", "6 paths of 80 [x, y], highest confidence first"),
-           _c("model_confidences", "JSON", "6 confidences matching model_paths, sum to 1"),
-           _c("lane_polylines", "JSON", "Lane centre lines within 60 m, list of [[x, y], ...]"),
-           _c("fde_8s_cv_m", "FLOAT64", "FDE@8s of constant velocity, metres"),
-           _c("fde_8s_best_m", "FLOAT64", "FDE@8s of the model's top path, metres"),
-           _c("fde_8s_min_m", "FLOAT64", "Best FDE@8s over the 6 paths, metres"),
-           _c("travelled_m", "FLOAT64", "Metres the agent actually travelled in 8 s"),
-           _c("checkpoint", "STRING", "Model checkpoint used")),
-          build_waymo_demo_examples),
+    Table("dataset_facts",
+          "Dataset sizes the demo shows (complaints, recalls, scenes, test window), as key/value text.",
+          (_c("key", "STRING", "Dotted name, e.g. complaints.per_year", "REQUIRED"),
+           _c("value", "STRING", "Value as text (numbers and dates)", "REQUIRED")),
+          build_dataset_facts),
+    Table("recall_ablation",
+          "Model trained on vehicle age only, complaints only, and both, vs the baseline (test 2022-24).",
+          (_c("model", "STRING", "Which inputs the model used", "REQUIRED"),
+           _c("hit_rate_20", "FLOAT64", "Precision with 20 flags a month"),
+           _c("hit_rate_100", "FLOAT64", "Precision with 100 flags a month"),
+           _c("pr_auc", "FLOAT64", "PR-AUC")),
+          build_recall_ablation),
+    Table("recall_overlap",
+          "Which recalls the model and the baseline each caught, and their median weeks of warning.",
+          tuple(_c(c, "INT64", c.replace("_", " "), "REQUIRED") for c in OVERLAP_INT)
+          + tuple(_c(c, "FLOAT64", c.replace("_", " ") + " (weeks)") for c in OVERLAP_FLOAT),
+          build_recall_overlap),
+    Table("recall_miss_reasons",
+          "Why missed first recalls were missed (test 2022-24).",
+          (_c("reason", "STRING", "Group of missed recalls", "REQUIRED"),
+           _c("recalls", "INT64", "Missed recalls in the group", "REQUIRED"),
+           _c("share", "FLOAT64", "Share of all missed recalls", "REQUIRED")),
+          build_recall_miss_reasons),
+    Table("label_audit_misses",
+          "How many of the model's misses each looser label match would count as hits.",
+          (_c("match", "STRING", "Looser match", "REQUIRED"),
+           _c("misses", "INT64", "Misses it matches", "REQUIRED"),
+           _c("share", "FLOAT64", "Share of misses", "REQUIRED")),
+          build_label_audit_misses),
+    Table("agent_complaints",
+          "Each complaint cited in a brief: received date and a short excerpt (personal details removed).",
+          (_c("brief_id", "STRING", "agent_briefs.brief_id", "REQUIRED"),
+           _c("odino", "STRING", "NHTSA complaint number", "REQUIRED"),
+           _c("received_date", "DATE", "When NHTSA received it"),
+           _c("excerpt", "STRING", "First ~170 characters, redacted")),
+          build_agent_complaints),
+    Table("agent_monthly",
+          "Complaints per month for each briefed car + part, 12 months up to the flag (months with any).",
+          (_c("brief_id", "STRING", "agent_briefs.brief_id", "REQUIRED"),
+           _c("month", "DATE", "Month", "REQUIRED"),
+           _c("complaints", "FLOAT64", "Complaints that month", "REQUIRED")),
+          build_agent_monthly),
+    Table("agent_brief_stats",
+          "Complaints on file for each briefed car + part before the flag (what the agent could read).",
+          (_c("brief_id", "STRING", "agent_briefs.brief_id", "REQUIRED"),
+           _c("complaints_on_file", "INT64", "Distinct complaints before the evidence cutoff", "REQUIRED")),
+          build_agent_brief_stats),
 ]}
 
 PUBLISH_LOG = Table(

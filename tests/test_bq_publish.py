@@ -9,7 +9,8 @@ import pytest
 from src import bq_publish as bq
 
 EXPECTED = ["watchlist", "recall_metrics", "recall_audit", "agent_briefs", "agent_citations",
-            "waymo_results", "waymo_demo_examples"]
+            "waymo_results", "dataset_facts", "recall_ablation", "recall_overlap", "recall_miss_reasons",
+            "label_audit_misses", "agent_complaints", "agent_monthly", "agent_brief_stats"]
 
 
 def _row(table):
@@ -201,3 +202,10 @@ def test_reader_explains_missing_credentials(monkeypatch):
     monkeypatch.setattr(bigquery, "Client", no_creds)
     with pytest.raises(RuntimeError, match="gcloud auth application-default login"):
         bq_reader.read_table("watchlist")
+
+
+def test_no_waymo_coordinates_are_published():
+    assert "waymo_demo_examples" not in bq.TABLES
+    for table in bq.TABLES.values():
+        names = {c.name for c in table.columns}
+        assert not names & {"past_path", "true_future", "baseline_path", "model_paths", "lane_polylines"}, table.name
