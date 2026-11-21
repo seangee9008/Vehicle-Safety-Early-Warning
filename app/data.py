@@ -67,13 +67,26 @@ def _local(builder_name: str) -> Callable[[], pd.DataFrame]:
     return build
 
 
+def _local_waymo_examples() -> pd.DataFrame:
+    """The demo examples JSON; generated from the local Waymo test data if it isn't there yet."""
+    import subprocess
+    import sys
+
+    from src import bq_publish
+
+    if not bq_publish.WAYMO_DEMO.exists():
+        subprocess.run([sys.executable, "-m", "src.trajectory.demo_examples"], cwd=ROOT,
+                       check=True, capture_output=True, timeout=300)
+    return _frame(bq_publish.build_waymo_demo_examples())
+
+
 LOCAL_LOADERS: dict[str, Callable[[], pd.DataFrame]] = {
     "v_watchlist_with_briefs": _local_watchlist_with_briefs,
     "recall_metrics": _local("build_recall_metrics"),
     "recall_audit": _local("build_recall_audit"),
     "agent_citations": _local("build_agent_citations"),
     "waymo_results": _local("build_waymo_results"),
-    "waymo_demo_examples": _local("build_waymo_demo_examples"),
+    "waymo_demo_examples": lambda: _local_waymo_examples(),
     # v_headline_metrics is computed from the other tables (headline() below)
 }
 
@@ -112,6 +125,17 @@ class Data:
     tables: dict[str, pd.DataFrame | None]
     source: dict[str, str]  # name -> "bigquery" | "local" | "missing"
     problems: dict[str, str] = field(default_factory=dict)
+    bigquery: str = "ok"  # ok | off (VSE_DATA=local) | auth (not logged in) | unreachable
+
+    @property
+    def notice(self) -> str | None:
+        """One plain sentence when local data is used; raw errors stay in self.problems."""
+        if not self.any_local:
+            return None
+        return {
+            "off": "Using local data: BigQuery is switched off (VSE_DATA=local).",
+            "auth": "Using local data: run `gcloud auth application-default login` to read from BigQuery.",
+        }.get(self.bigquery, "Using local data: BigQuery isn't reachable right now.")
 
     def get(self, name: str) -> pd.DataFrame | None:
         return self.tables.get(name)
@@ -153,10 +177,23 @@ def _normalize(df: pd.DataFrame | None) -> pd.DataFrame | None:
     return df
 
 
+AUTH_HINTS = ("not authenticated", "credentials", "refresherror", "invalid_grant", "reauth")
+
+
+def _bigquery_status(problems: dict[str, str], use_bq: bool) -> str:
+    if not use_bq and not problems:
+        return "off"
+    text = " ".join(problems.values()).lower()
+    if not text:
+        return "ok"
+    return "auth" if any(hint in text for hint in AUTH_HINTS) else "unreachable"
+
+
 def load_all() -> Data:
     """Load every table; BigQuery unless VSE_DATA=local or the first query fails."""
     names = list(SOURCES)
     use_bq = os.environ.get("VSE_DATA", "").lower() != "local"
+    wanted_bq = use_bq
     if use_bq:
         use_streamlit_secrets()
     tables, source, problems = {}, {}, {}
@@ -177,7 +214,9 @@ def load_all() -> Data:
         computed = headline_from_tables(tables)
         tables["v_headline_metrics"] = computed
         source["v_headline_metrics"] = "local" if computed is not None else "missing"
-    return Data(tables, source, problems)
+    status = "off" if not wanted_bq else _bigquery_status(
+        {k: v for k, v in problems.items() if v.startswith("BigQuery")}, True)
+    return Data(tables, source, problems, status)
 
 
 # ---------------------------------------------------------------------------------------------

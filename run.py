@@ -165,9 +165,26 @@ def cmd_all(args: argparse.Namespace) -> int:
     return cmd_pipeline(args)
 
 
+def _repo_venv_python() -> Path | None:
+    venv = ROOT / ".venv"
+    exe = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return exe if exe.exists() else None
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     # Reads BigQuery via src/bq_reader.py, falls back to local files. Extra args go to streamlit.
-    return _run([PY, "-m", "streamlit", "run", "app/streamlit_app.py", *args.extra])
+    # Always this repo's .venv, which has duckdb, google-cloud-bigquery and plotly installed.
+    venv_python = _repo_venv_python()
+    if venv_python is None:
+        print("No .venv in this repo (see SETUP.md); starting the demo with "
+              f"{PY}, which may be missing duckdb / google-cloud-bigquery.")
+        python = PY
+    else:
+        python = str(venv_python)
+        if Path(sys.prefix).resolve() != (ROOT / ".venv").resolve():
+            print(f"run.py was started with {PY}, not this repo's .venv; "
+                  f"starting the demo with {venv_python} instead.")
+    return _run([python, "-m", "streamlit", "run", "app/streamlit_app.py", *args.extra])
 
 
 def cmd_status(_: argparse.Namespace) -> int:
