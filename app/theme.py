@@ -49,6 +49,11 @@ BASE_PX = 18
 BASELINE_TOOLTIP = "Rank cars by how many complaints they got in the last 3 months."
 
 
+def rgba(hex_color: str, alpha: float) -> str:
+    r, g, b = (int(hex_color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha})"
+
+
 def part_name(component: str) -> str:
     c = str(component).upper()
     return next((name for prefix, name in PART_GROUPS if c.startswith(prefix)), "Other")
@@ -114,7 +119,7 @@ pio.templates["vse_dark"] = go.layout.Template(layout=go.Layout(
 def css(scale: float = 1.0) -> str:
     return f"""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&display=block');
+  /* icons use the Material Symbols font Streamlit already ships (no extra download) */
   :root {{ --s: {scale}; }}
   html {{ font-size: calc({BASE_PX}px * var(--s)); }}
   html, body, [class*="css"], .stApp {{ font-family: {FONT}; }}
@@ -188,6 +193,27 @@ def css(scale: float = 1.0) -> str:
   .vse-counter .l {{ font-size: 0.85rem; color: {MUTED}; }}
   .vse-next {{ background: {TRACK_A_TINT}; border: 1px solid {TRACK_A}; border-radius: 12px; padding: 14px 18px; }}
   .vse-th {{ color: {MUTED}; font-size: 0.82rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }}
+  .vse-eyebrow {{ color: {TRACK_A}; font-size: 0.78rem; font-weight: 750; letter-spacing: 0.12em; margin-top: 0.6rem; }}
+  .vse-bigtitle {{ font-size: 1.78rem; font-weight: 760; color: {INK}; line-height: 1.2; margin: 4px 0 14px;
+                  letter-spacing: -0.01em; }}
+  .vse-story {{ display: flex; align-items: stretch; gap: 10px; margin-bottom: 8px; }}
+  .vse-why {{ flex: 1 1 0; min-width: 0; border: 1px solid {BORDER}; border-top: 5px solid var(--accent);
+             border-radius: 14px; padding: 18px 20px;
+             background: linear-gradient(180deg, var(--glow) 0%, rgba(0,0,0,0) 75%), {CARD}; }}
+  .vse-why .ic {{ width: 3.1rem; height: 3.1rem; border-radius: 50%; background: var(--accent);
+                 display: flex; align-items: center; justify-content: center; color: {BG}; margin-bottom: 12px; }}
+  .vse-why .ic .ms {{ font-size: 1.75rem; vertical-align: 0; }}
+  .vse-why .h {{ font-size: 1.44rem; font-weight: 760; color: {INK}; line-height: 1.2; margin-bottom: 10px; }}
+  .vse-why .stat {{ font-size: 2.1rem; font-weight: 800; color: var(--accent); line-height: 1.1; }}
+  .vse-why .stat .u {{ font-size: 1rem; font-weight: 650; color: {INK}; }}
+  .vse-why .sub {{ font-size: 0.9rem; color: {MUTED}; margin-top: 2px; }}
+  .vse-why .chips {{ display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }}
+  .vse-why .ln {{ font-size: 0.89rem; color: {MUTED}; margin-top: 12px; }}
+  .vse-chev {{ align-self: center; color: {MUTED}; font-size: 1.8rem; font-weight: 700; flex: none; }}
+  @media (max-width: 900px) {{
+    .vse-story {{ flex-direction: column; }}
+    .vse-chev {{ transform: rotate(90deg); margin: -4px auto; }}
+  }}
   .st-key-panel_a {{ background: {TRACK_A_TINT}; border-radius: 14px; padding: 16px 18px; }}
   .st-key-panel_b {{ background: {TRACK_B_TINT}; border-radius: 14px; padding: 16px 18px; }}
   [class*="st-key-why_"], [class*="st-key-car_"], [class*="st-key-tile_"], [class*="st-key-wrow_"] {{

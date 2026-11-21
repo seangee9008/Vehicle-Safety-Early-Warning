@@ -151,22 +151,33 @@ def text(at: AppTest) -> str:
     return "\n".join(m.value for m in at.markdown)
 
 
+def all_tabs_text(at: AppTest) -> str:
+    """Tabs are lazy (only the open one renders), so visit each and collect its text."""
+    out = []
+    for name in TABS:
+        at.session_state["main_tab"] = name
+        at.run()
+        assert not at.exception, (name, [e.message for e in at.exception])
+        out.append(text(at))
+    return "\n".join(out)
+
+
 def test_every_tab_renders_with_bigquery_data(monkeypatch):
     tables = fake_tables()
     fake_bigquery(monkeypatch, tables)
     fake_local(monkeypatch, tables, broken=set(tables))  # must not be needed
 
     at = run_app()
-    page = text(at)
+    page = all_tabs_text(at)
 
     assert "Live results" in page and "Local data" not in page
     assert "Sean Gee · Justine Li-Wu · Angelina Yang" in page
     assert "11.8%" in page and "6 of 6" in page and "3 unique complaints" in page  # KPI cards
-    assert "Why this project" in page and "Spot safety problems early" in page    # overview sections
+    assert "WHY THIS PROJECT" in page and "Defects hide in complaints" in page    # overview story
+    assert "Spot safety problems early" in page                                  # decision tree
     assert "New car" in page and "Fire reports" in page                          # watchlist tags
     assert "vehicle is under a year old" not in page.split("Flag reasons check")[0]  # never raw on the list
     assert "Built by Sean Gee, Justine Li-Wu, Angelina Yang." in page
-    assert at.selectbox(key="watch_month").value == "Dec 2024"
     assert not at.info
 
 
@@ -175,7 +186,7 @@ def test_every_agent_car_detail_renders(monkeypatch, brief_id):
     tables = fake_tables()
     fake_bigquery(monkeypatch, tables)
 
-    at = run_app({"agent_car": brief_id})
+    at = run_app({"agent_car": brief_id, "main_tab": "AI agent"})
     page = text(at)
 
     assert "How the agent worked" in page and "31 of" in page               # stepper with real counts
@@ -189,7 +200,7 @@ def test_every_agent_car_detail_renders(monkeypatch, brief_id):
 def test_watchlist_brief_button_opens_the_agent(monkeypatch):
     tables = fake_tables()
     fake_bigquery(monkeypatch, tables)
-    at = run_app()
+    at = run_app({"main_tab": "Recall watchlist"})
 
     at.button(key="wopen_0").click().run()
 
@@ -203,7 +214,8 @@ def test_every_tile_detail_view_renders(monkeypatch, page_key, key):
     tables = fake_tables()
     fake_bigquery(monkeypatch, tables)
 
-    at = run_app({f"detail_{page_key}": key})
+    tab = "Model results" if page_key == "results" else "Trajectory"
+    at = run_app({f"detail_{page_key}": key, "main_tab": tab})
 
     labels = [b.label for b in at.button]
     assert "Back to overview" in labels or "Back to trajectories" in labels
@@ -223,13 +235,17 @@ def test_text_size_scales_the_page(monkeypatch, size, scale):
 def test_tiles_and_widgets(monkeypatch):
     tables = fake_tables()
     fake_bigquery(monkeypatch, tables)
-    at = run_app()
+    at = run_app({"main_tab": "Model results"})
 
     at.button(key="open_results_hit").click().run()
     assert at.session_state["detail_results"] == "hit"
     at.button(key="back_results").click().run()
     assert at.session_state["detail_results"] is None
+    at.session_state["main_tab"] = "Recall watchlist"
+    at.run()
     at.selectbox(key="watch_month").select("Nov 2024").run()
+    at.session_state["main_tab"] = "Trajectory"
+    at.run()
     at.button_group(key="traj_type").set_value("pedestrian").run()
     assert not at.exception, [e.message for e in at.exception]
     assert at.session_state["traj_example"] == "s1_1"
@@ -240,7 +256,7 @@ def test_local_fallback_when_bigquery_unreachable(monkeypatch):
     fake_bigquery(monkeypatch, {}, broken=set(tables), error="connection timed out")
     fake_local(monkeypatch, tables)
 
-    at = run_app({"detail_results": "fair"})
+    at = run_app({"detail_results": "fair", "main_tab": "Model results"})
 
     page = text(at)
     assert "Local data" in page and "isn't reachable" in page
@@ -282,9 +298,15 @@ def test_missing_table_shows_notice_and_other_tabs_still_work(monkeypatch, name)
 
     at = run_app()
 
+    notices = []
+    for tab in TABS:
+        at.session_state["main_tab"] = tab
+        at.run()
+        assert not at.exception, (tab, [e.message for e in at.exception])
+        notices += [i.body for i in at.info]
     if name not in ("agent_citations", "recall_audit"):  # these two only shrink a card / drop a tile
-        assert any(name in i.body for i in at.info), [i.body for i in at.info]
-    assert "Data sources" in text(at)  # the rest of the app still renders
+        assert any(name in n for n in notices), notices
+    assert "Data sources" in text(at)  # the last tab (Data and limitations) still renders
 
 
 def test_headline_from_tables_matches_inputs():
