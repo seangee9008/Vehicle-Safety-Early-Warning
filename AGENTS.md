@@ -92,7 +92,7 @@ Run from the repo root with the `.venv` Python. Each command prints what it runs
 | `python run.py status` | Print the task table from STATUS.md, then real vs placeholder per table |
 | `python run.py pipeline` | Rebuild everything in order, stopping at the first failure: stg cleaning, Justine's labels / features / model / watchlist / results, contracts, label audit, briefs (cache on, request cap), Waymo evaluate + demo examples, BigQuery plan (dry run). `--dry-run` lists the steps. Rewrites Justine's committed `reports/recall_*_stg.csv` (`git checkout -- reports` restores them) |
 | `python run.py all` | `check`, then `pipeline` |
-| `python run.py demo` | Not built yet (`app/`) |
+| `python run.py demo` | Streamlit demo (`app/streamlit_app.py`): reads BigQuery, falls back to local files (`VSE_DATA=local` forces local). See `app/README.md` |
 
 The agent itself: `python -m src.agent.run --watchlist <csv> --top 5` (add `--force` only to
 regenerate on purpose; it uses the free daily quota).

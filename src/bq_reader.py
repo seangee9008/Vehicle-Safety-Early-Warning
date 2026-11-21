@@ -49,7 +49,8 @@ def get_client():
     return _client
 
 
-def _read(name: str, allowed: tuple[str, ...], kind: str, limit: int | None) -> pd.DataFrame:
+def _read(name: str, allowed: tuple[str, ...], kind: str, limit: int | None,
+          timeout: float | None = None) -> pd.DataFrame:
     if name not in allowed:
         raise ValueError(f"unknown {kind} {name!r}; expected one of {list(allowed)}")
     sql = f"SELECT * FROM `{PROJECT}.{DATASET}.{name}`" + (f" LIMIT {int(limit)}" if limit else "")
@@ -58,7 +59,8 @@ def _read(name: str, allowed: tuple[str, ...], kind: str, limit: int | None) -> 
 
     try:
         # small tables: the REST endpoint is enough (no BigQuery Storage API client needed)
-        df = get_client().query(sql).to_dataframe(create_bqstorage_client=False)
+        rows = get_client().query(sql, timeout=timeout).result(timeout=timeout)
+        df = rows.to_dataframe(create_bqstorage_client=False)
     except RefreshError as error:
         raise RuntimeError(_AUTH_HELP) from error
     except Forbidden as error:
@@ -72,12 +74,13 @@ def _read(name: str, allowed: tuple[str, ...], kind: str, limit: int | None) -> 
     return df
 
 
-def read_table(name: str, limit: int | None = None) -> pd.DataFrame:
-    return _read(name, TABLES, "table", limit)
+def read_table(name: str, limit: int | None = None, timeout: float | None = None) -> pd.DataFrame:
+    """``timeout`` (seconds) bounds the request, e.g. so a demo can fall back to local data."""
+    return _read(name, TABLES, "table", limit, timeout)
 
 
-def read_view(name: str, limit: int | None = None) -> pd.DataFrame:
-    return _read(name, VIEWS, "view", limit)
+def read_view(name: str, limit: int | None = None, timeout: float | None = None) -> pd.DataFrame:
+    return _read(name, VIEWS, "view", limit, timeout)
 
 
 def list_tables() -> list[str]:

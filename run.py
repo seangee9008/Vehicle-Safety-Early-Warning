@@ -2,7 +2,7 @@
 
     python run.py check | data | dbt | test | lint | waymo | briefs | status | contracts | publish
     python run.py pipeline | all    (rebuild everything in order; --dry-run lists the steps)
-    python run.py demo              (not built yet)
+    python run.py demo              Streamlit demo (VSE_DATA=local to skip BigQuery)
 
 Standard library only, so it works on Mac and Windows before anything else is installed.
 """
@@ -165,6 +165,11 @@ def cmd_all(args: argparse.Namespace) -> int:
     return cmd_pipeline(args)
 
 
+def cmd_demo(args: argparse.Namespace) -> int:
+    # Reads BigQuery via src/bq_reader.py, falls back to local files. Extra args go to streamlit.
+    return _run([PY, "-m", "streamlit", "run", "app/streamlit_app.py", *args.extra])
+
+
 def cmd_status(_: argparse.Namespace) -> int:
     lines = (ROOT / "STATUS.md").read_text(encoding="utf-8").splitlines()
     start = next((i for i, line in enumerate(lines) if line.startswith("| Task")), None)
@@ -194,7 +199,7 @@ COMMANDS = {
     "publish": cmd_publish,
     "pipeline": cmd_pipeline,
     "all": cmd_all,
-    "demo": lambda _: _not_built("demo"),
+    "demo": cmd_demo,
 }
 
 
@@ -204,7 +209,7 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true", help="data: rebuild data/nhtsa.duckdb")
     parser.add_argument("--dry-run", action="store_true", help="pipeline/all: list the steps only")
     args, extra = parser.parse_known_args()
-    if extra and args.command != "publish":
+    if extra and args.command not in ("publish", "demo"):
         parser.error(f"unrecognized arguments: {' '.join(extra)}")
     args.extra = extra
     raise SystemExit(COMMANDS[args.command](args))
