@@ -214,6 +214,9 @@ def css(scale: float = 1.0) -> str:
     .vse-story {{ flex-direction: column; }}
     .vse-chev {{ transform: rotate(90deg); margin: -4px auto; }}
   }}
+  .vse-banner {{ background: {CARD}; border: 1px solid {BORDER}; border-left: 6px solid {TRACK_B};
+                border-radius: 12px; padding: 14px 18px; color: {INK}; font-size: 1rem; margin-bottom: 14px; }}
+  .vse-banner .ms {{ color: {TRACK_B}; margin-right: 6px; }}
   .st-key-panel_a {{ background: {TRACK_A_TINT}; border-radius: 14px; padding: 16px 18px; }}
   .st-key-panel_b {{ background: {TRACK_B_TINT}; border-radius: 14px; padding: 16px 18px; }}
   [class*="st-key-why_"], [class*="st-key-car_"], [class*="st-key-tile_"], [class*="st-key-wrow_"] {{

@@ -10,7 +10,6 @@ No AI calls at runtime: the briefs were written and checked beforehand.
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from html import escape
@@ -23,8 +22,8 @@ if str(ROOT) not in sys.path:
 import pandas as pd
 import streamlit as st
 
-from app import agent_data, charts, motion, reports, theme
 from app import briefs as B
+from app import charts, motion, theme
 from app import components as ui
 from app import data as D
 
@@ -41,25 +40,19 @@ MISS_LABELS = {"1-2 complaints in the 12 months before": "1 or 2 complaints in t
 VERDICTS = {"SUPPORT": (":green[:material/check_circle:]", "Supported"),
             "CONTEXT": (":blue[:material/info:]", "Context only"),
             "CONTRADICT": (":red[:material/cancel:]", "Contradicted")}
-try:  # how many complaints the agent reads per brief (its tool's limit)
-    from src.agent.brief import COMPLAINT_LIMIT
-except Exception:  # noqa: BLE001 - the agent's packages aren't installed on Streamlit Cloud
-    COMPLAINT_LIMIT = None
-
-
 @st.cache_data(ttl=3600, show_spinner="Loading results…")
 def load() -> D.Data:
     return D.load_all()
 
 
-@st.cache_data
-def load_facts() -> dict:
-    return json.loads(FACTS_PATH.read_text(encoding="utf-8")) if FACTS_PATH.exists() else {}
+@st.cache_data(ttl=3600, show_spinner=False)
+def local_examples() -> pd.DataFrame | None:
+    return D.load_local_examples()
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_agent_details(briefs: pd.DataFrame, citations: pd.DataFrame | None, live: bool) -> tuple[dict, str]:
-    return agent_data.load(briefs, citations, live=live)
+def static_examples() -> pd.DataFrame | None:
+    return D.static_examples()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -110,6 +103,13 @@ def waymo(wr, predictor: str, object_type: str = "all", horizon: int = 8, col: s
         return None
     w = wr[(wr["predictor"] == predictor) & (wr["object_type"] == object_type) & (wr["horizon_s"] == horizon)]
     return float(w[col].iloc[0]) if len(w) else None
+
+
+def overlap(data: D.Data, top: int = 20):
+    ov = data.get("recall_overlap")
+    if ov is None or (ov["top"] == top).sum() == 0:
+        return None
+    return ov[ov["top"] == top].iloc[0]
 
 
 def briefs_of(data: D.Data) -> pd.DataFrame:
@@ -335,12 +335,11 @@ def tab_agent(data: D.Data) -> None:
         missing("v_watchlist_with_briefs") if data.get("v_watchlist_with_briefs") is None else \
             st.info("No briefs have been published yet.")
         return
-    cites = data.get("agent_citations")
-    details, details_source = load_agent_details(
-        briefs.reset_index(drop=True), None if cites is None else cites.reset_index(drop=True), live=True)
+    details = D.agent_details(data)
     pick = st.session_state.get("agent_car")
     if pick in set(briefs["brief_id"]):
-        agent_detail(data, briefs[briefs["brief_id"] == pick].iloc[0], details.get(pick, {}), details_source)
+        agent_detail(data, briefs[briefs["brief_id"] == pick].iloc[0], details.get(pick, {}),
+                     D.facts_from(data.get("dataset_facts")))
         return
     months = {month_name(m): m for m in sorted(briefs["month"].unique(), reverse=True)}
     label = st.selectbox("Watchlist month", list(months), key="agent_month") if len(months) > 1 else next(iter(months))
@@ -367,7 +366,7 @@ def tab_agent(data: D.Data) -> None:
                           icon=":material/arrow_forward:", width="stretch")
 
 
-def agent_detail(data: D.Data, r: pd.Series, detail: dict, source: str) -> None:
+def agent_detail(data: D.Data, r: pd.Series, detail: dict, facts: dict) -> None:
     st.button("Back to all cars", key="agent_back", icon=":material/arrow_back:",
               on_click=lambda: st.session_state.update(agent_car=None))
     color = theme.part_color(r["component"])
@@ -381,7 +380,8 @@ def agent_detail(data: D.Data, r: pd.Series, detail: dict, source: str) -> None:
 
     st.markdown("#### How the agent worked")
     on_file = detail.get("complaints_on_file")
-    read = f"{min(on_file, COMPLAINT_LIMIT)} of {on_file}" if on_file is not None and COMPLAINT_LIMIT else \
+    limit = facts.get("agent", {}).get("read_limit")
+    read = f"{min(on_file, limit)} of {on_file}" if on_file is not None and limit else \
         (f"{on_file} on file" if on_file is not None else "–")
     listed, none_found = B.similar_recalls(sec.get("Similar past recalls", ""))
     scope = {"same_make": "same make", "all_makes": "all makes"}.get(r["similar_recall_search_scope"], "all makes")
@@ -451,8 +451,7 @@ def agent_detail(data: D.Data, r: pd.Series, detail: dict, source: str) -> None:
     st.markdown('<div class="vse-next">' + "".join(
         f'<div style="margin:4px 0">{ui.icon("arrow_right", theme.TRACK_A)} {escape(s)}</div>' for s in steps)
         + "</div>", unsafe_allow_html=True)
-    muted(f"Written by an AI model and not edited by hand; every quoted complaint was checked automatically. "
-          f"Complaint details: {'local database' if source == 'local' else 'saved snapshot'}.")
+    muted("Written by an AI model and not edited by hand; every quoted complaint was checked automatically.")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -468,7 +467,8 @@ def results_tiles(data: D.Data) -> list[dict]:
     first = D.metric(rm, scorer="lgbm", metric="first_recalls_with_complaints")
     weeks = D.metric(rm, scorer="lgbm", metric="median_weeks_warning")
     base_weeks = D.metric(rm, scorer="baseline", metric="median_weeks_warning")
-    ov, abl, misses, late = reports.overlap(20), reports.ablation(), reports.miss_reasons(), reports.label_audit_misses()
+    ov, abl = overlap(data), data.get("recall_ablation")
+    misses, late = data.get("recall_miss_reasons"), data.get("label_audit_misses")
     exact = audit_value(audit, "label_audit", "exact", "lgbm_precision_at_20")
     variant = audit_value(audit, "label_audit", "+ model-name", "lgbm_precision_at_20")
     inv_hit = (audit_value(audit, "investigations", "v1 (", "precision_at_20"),
@@ -640,12 +640,55 @@ def traj_tiles(wr: pd.DataFrame) -> list[dict]:
     return tiles
 
 
+def static_trajectory() -> None:
+    """Public version: pre-rendered images and their descriptions (no coordinates are published)."""
+    ex = static_examples()
+    if ex is None or ex.empty:
+        missing("trajectory examples")
+        return
+    types = [t for t in ("vehicle", "pedestrian", "cyclist") if (ex["object_type"] == t).any()]
+    kind = st.pills("Road user", types, default=types[0], key="traj_type",
+                    format_func=lambda t: motion.TYPE_WORD.get(t, t)) or types[0]
+    pool = ex[ex["object_type"] == kind]
+    pool = (pool.assign(gain=pool["fde_8s_cv_m"] - pool["fde_8s_best_m"])
+            .sort_values(["turns", "gain"], ascending=[False, False]))
+    if st.session_state.get("traj_example") not in set(pool["example_id"]):
+        st.session_state["traj_example"] = pool["example_id"].iloc[0]
+    chosen = st.session_state["traj_example"]
+    muted(f"{len(pool)} examples from the test scenes, described from their own paths. Pick one.")
+    with st.container(height=190, key="traj_picker"):
+        cols = st.columns(4)
+        for i, (_, r) in enumerate(pool.iterrows()):
+            cols[i % 4].button(r["description"], key=f"ex_{r['example_id']}", on_click=pick_example,
+                               args=(r["example_id"],), icon=motion.TYPE_ICON.get(kind), width="stretch",
+                               type="primary" if r["example_id"] == chosen else "secondary")
+    r = pool[pool["example_id"] == chosen].iloc[0]
+    c = st.columns(3)
+    with c[0]:
+        ui.kpi_card("Going straight", num(r["fde_8s_cv_m"], 1, " m"), "Error if it kept its speed and heading.",
+                    "after 8 seconds", theme.BASELINE)
+    with c[1]:
+        ui.kpi_card("Top guess", num(r["fde_8s_best_m"], 1, " m"), "The model's most confident path.",
+                    f"{100 * (r['fde_8s_best_m'] / r['fde_8s_cv_m'] - 1):+.0f}% vs going straight", theme.TRACK_B)
+    with c[2]:
+        ui.kpi_card("Closest of 6", num(r["fde_8s_min_m"], 1, " m"), "The best of the model's 6 paths.",
+                    f"{100 * (r['fde_8s_min_m'] / r['fde_8s_cv_m'] - 1):+.0f}% vs going straight", theme.TRACK_B)
+    with st.container(border=True):
+        st.markdown(f"**{r['description']}**")
+        image = D.STATIC_TRAJECTORY / f"{r['example_id']}.png"
+        if image.exists():
+            _, mid, _ = st.columns([1, 3, 1])
+            mid.image(str(image), width="stretch")
+        muted(f"Seen from the {motion.TYPE_WORD.get(kind, kind).lower()}: it is at the dot, facing right. "
+              "Gray lines are lane centers.")
+
+
 def pick_example(example_id: str) -> None:
     st.session_state["traj_example"] = example_id
 
 
 def tab_trajectory(data: D.Data) -> None:
-    ex, wr = data.get("waymo_demo_examples"), data.get("waymo_results")
+    ex, wr = local_examples(), data.get("waymo_results")
     open_key = st.session_state.get(ui.detail_key("traj"))
     if wr is not None and open_key:
         match = next((t for t in traj_tiles(wr) if t["key"] == open_key), None)
@@ -653,7 +696,7 @@ def tab_trajectory(data: D.Data) -> None:
             ui.detail_view("traj", match["title"], match["draw"], match["text"], back_label="Back to trajectories")
             return
     if ex is None or ex.empty:
-        missing("waymo_demo_examples")
+        static_trajectory()
     else:
         types = [t for t in ("vehicle", "pedestrian", "cyclist") if (ex["object_type"] == t).any()]
         kind = st.pills("Road user", types, default=types[0], key="traj_type",
@@ -724,7 +767,7 @@ def tab_data(data: D.Data, facts: dict) -> None:
     with right, st.container(border=True):
         st.markdown("#### :material/report: Honest limitations")
         cov20, cov100 = topk(rm, "lgbm", "pct_recalls_caught", 20), topk(rm, "lgbm", "pct_recalls_caught", 100)
-        misses, abl, late = reports.miss_reasons(), reports.ablation(), reports.label_audit_misses()
+        misses, abl, late = data.get("recall_miss_reasons"), data.get("recall_ablation"), data.get("label_audit_misses")
         out = []
         if cov20 is not None:
             out.append(f"- Flags catch a small share of recalls: {pct(cov20)} with 20 a month, {pct(cov100)} with 100.")
@@ -769,6 +812,54 @@ def tab_data(data: D.Data, facts: dict) -> None:
 
 
 # ---------------------------------------------------------------------------------------------
+# data status: live / saved copy / final, all times in Pacific time
+
+PACIFIC = "America/Los_Angeles"
+
+
+def pacific(value, with_time: bool = False) -> str:
+    if value in (None, "") or (not isinstance(value, str) and pd.isna(value)):
+        return "–"
+    ts = pd.Timestamp(value)
+    ts = (ts.tz_localize("UTC") if ts.tzinfo is None else ts).tz_convert(PACIFIC)
+    return ts.strftime("%b %-d, %Y, %-I:%M %p PT") if with_time else ts.strftime("%b %-d, %Y")
+
+
+def last_updated(data: D.Data) -> str | None:
+    h = data.get("v_headline_metrics")
+    value = None if h is None or h.empty else h.iloc[0].get("last_published_at")
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        value = data.manifest.get("last_updated")
+    return value
+
+
+def data_status_header(data: D.Data) -> None:
+    if data.mode != "final":
+        return
+    st.markdown(
+        f'<div class="vse-banner">{ui.icon("inventory_2")} Live data ended {pacific(data.expires_at)} (BigQuery free '
+        f'tier limit). Showing the final copy saved {pacific(data.manifest.get("frozen_at"), True)}. Data last '
+        f'updated {pacific(last_updated(data), True)}.</div>', unsafe_allow_html=True)
+
+
+def data_status_chip(data: D.Data) -> None:
+    if data.mode == "live":
+        ends = f" · ends {pacific(data.expires_at)}" if data.expires_at else ""
+        st.markdown(ui.chip(f"Live results{ends}", theme.BG, theme.GOOD, "cloud_done"), unsafe_allow_html=True)
+    elif data.mode == "saved":
+        st.markdown(ui.chip(f"Saved copy · {pacific(data.manifest.get('frozen_at'), True)}", theme.INK, theme.BORDER,
+                            "cloud_off"), unsafe_allow_html=True)
+    elif data.mode == "final":
+        st.markdown(ui.chip("Final copy", theme.INK, theme.BORDER, "inventory_2"), unsafe_allow_html=True)
+    elif data.mode == "local":
+        st.markdown(f'{ui.chip("Local data", theme.BG, theme.TRACK_A, "cloud_off")}'
+                    f'<div class="vse-muted">{escape((data.notice or "").replace("`", ""), quote=False)}</div>',
+                    unsafe_allow_html=True)
+    else:
+        st.markdown(ui.chip("No data", theme.INK, theme.BORDER, "error"), unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------------------------
 
 size = st.session_state.get("text_size") or "M"
 scale = theme.TEXT_SCALES.get(size, 1.0)
@@ -776,7 +867,8 @@ charts.set_scale(scale)
 st.markdown(theme.css(scale), unsafe_allow_html=True)
 
 data = load()
-facts = load_facts()
+facts = D.facts_from(data.get("dataset_facts"))
+data_status_header(data)
 head, side = st.columns([4, 1.4])
 head.markdown(f'<div class="vse-title">Vehicle Safety Early Warning</div>'
               f'<div class="vse-sub">Spot vehicle safety problems early: months ahead and seconds ahead.</div>'
@@ -784,12 +876,7 @@ head.markdown(f'<div class="vse-title">Vehicle Safety Early Warning</div>'
 with side:
     st.segmented_control("Text size", list(theme.TEXT_SCALES), default="M", key="text_size",
                          selection_mode="single")
-    if data.notice:
-        st.markdown(f'{ui.chip("Local data", theme.BG, theme.TRACK_A, "cloud_off")}'
-                    f'<div class="vse-muted">{escape(data.notice.replace("`", ""), quote=False)}</div>',
-                    unsafe_allow_html=True)
-    else:
-        st.markdown(ui.chip("Live results", theme.BG, theme.GOOD, "cloud_done"), unsafe_allow_html=True)
+    data_status_chip(data)
 
 # Lazy tabs: only the tab on screen is built and sent to the browser, so the page stays light.
 tabs = st.tabs(TABS, key="main_tab", on_change="rerun")
@@ -804,8 +891,8 @@ with st.expander("Technical details"):
     st.markdown("\n".join(f"- `{name}`: {source}" for name, source in data.source.items()))
     for name, why in data.problems.items():
         st.code(f"{name}: {why}", language=None)
+    st.caption(f"Mode: {data.mode}. Snapshot: {data.manifest.get('frozen_at', 'none')}.")
     if st.button("Reload data"):
         load.clear()
-        load_facts.clear()
-        load_agent_details.clear()
+        local_examples.clear()
         st.rerun()
