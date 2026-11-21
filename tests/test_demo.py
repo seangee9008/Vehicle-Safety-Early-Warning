@@ -173,7 +173,8 @@ def test_every_tab_renders_with_bigquery_data(monkeypatch):
     assert "Live results" in page and "Local data" not in page
     assert "Sean Gee · Justine Li-Wu · Angelina Yang" in page
     assert "11.8%" in page and "6 of 6" in page and "3 unique complaints" in page  # KPI cards
-    assert "Why this project" in page and "Spot safety problems early" in page    # overview sections
+    assert "WHY THIS PROJECT" in page and "Defects hide in complaints" in page    # overview story
+    assert "Spot safety problems early" in page                                  # decision tree
     assert "New car" in page and "Fire reports" in page                          # watchlist tags
     assert "vehicle is under a year old" not in page.split("Flag reasons check")[0]  # never raw on the list
     assert "Built by Sean Gee, Justine Li-Wu, Angelina Yang." in page

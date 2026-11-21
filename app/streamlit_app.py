@@ -128,28 +128,48 @@ def open_agent(brief_id: str) -> None:
 # ---------------------------------------------------------------------------------------------
 # Overview
 
+def h_row(data: D.Data):
+    h = data.get("v_headline_metrics")
+    return None if h is None or h.empty else h.iloc[0]
+
+
+def why_story(h, cf: dict, rf: dict) -> None:
+    """Problem -> Goal -> Approach, as three connected cards."""
+    weeks = None if h is None else h["model_median_weeks_warning"]
+    problem_stat = (f'<div class="stat">{num(cf["per_year"])}<span class="u"> complaints / yr</span></div>'
+                    f'<div class="sub">vs ~{num(rf["per_year"])} recalls / yr</div>') if cf and rf else ""
+    goal_stat = (f'<div class="stat">~{num(weeks)}<span class="u"> weeks</span></div>'
+                 '<div class="sub">median warning before a recall</div>') if weeks is not None else ""
+    approach_chips = "".join(ui.chip(t, theme.INK, theme.BORDER, ic) for ic, t in [
+        ("format_list_numbered", "Rank every part monthly"), ("smart_toy", "AI writes a brief"),
+        ("fact_check", "Every citation checked")])
+    cards = [
+        (theme.ALERT, "report", "Defects hide in complaints", problem_stat,
+         "Owners report problems long before a recall."),
+        (theme.TRACK_A, "schedule", "Warn months, not years, ahead", goal_stat,
+         "Plus where road users move in the next 8 seconds."),
+        (theme.TRACK_B, "account_tree", "Rank, explain, verify", f'<div class="chips">{approach_chips}</div>',
+         "Learn 6 possible paths per road user."),
+    ]
+    parts = []
+    for i, (accent, icon_name, headline, visual, line) in enumerate(cards):
+        if i:
+            parts.append('<div class="vse-chev" aria-hidden="true">→</div>')
+        parts.append(
+            f'<div class="vse-why" style="--accent:{accent};--glow:{theme.rgba(accent, 0.12)}">'
+            f'<div class="ic">{ui.icon(icon_name)}</div><div class="h">{escape(headline)}</div>'
+            f'{visual}<div class="ln">{escape(line)}</div></div>')
+    st.markdown('<div class="vse-eyebrow">WHY THIS PROJECT</div>'
+                '<div class="vse-bigtitle">Defects show up in complaints before they show up in recalls.</div>'
+                f'<div class="vse-story">{"".join(parts)}</div>', unsafe_allow_html=True)
+
+
 def tab_overview(data: D.Data, facts: dict) -> None:
     h = data.get("v_headline_metrics")
     rm, wr, audit = data.get("recall_metrics"), data.get("waymo_results"), data.get("recall_audit")
     cf, rf, w = facts.get("complaints", {}), facts.get("recalls", {}), facts.get("waymo", {})
 
-    st.markdown("### Why this project")
-    cards = [
-        ("why_problem", "report", "The problem",
-         f"Safety defects build up in owner complaints long before a recall. Owners file about "
-         f"{num(cf.get('per_year'))} complaints a year; NHTSA announces about {num(rf.get('per_year'))} recall "
-         "campaigns a year." if cf and rf else "Safety defects build up in owner complaints long before a recall."),
-        ("why_goal", "flag", "The goal",
-         "Flag risky car parts months before a recall. Predict where road users move seconds ahead."),
-        ("why_approach", "account_tree", "Our approach",
-         ("Rank every car part monthly and explain each flag with checked evidence. Learn several possible "
-         "paths for each road user.")),
-    ]
-    cols = st.columns(3)
-    for col, (key, ic, title, body) in zip(cols, cards, strict=True):
-        with col, st.container(key=key):
-            st.markdown(f"**:material/{ic}: {title}**")
-            st.markdown(body)
+    why_story(h_row(data), cf, rf)
 
     st.markdown("### Results")
     if h is None or h.empty:
