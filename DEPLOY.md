@@ -1,5 +1,7 @@
 # Deploying the public demo
 
+Live at **https://vehicle-safety-early-warning.streamlit.app/**.
+
 The app (`app/streamlit_app.py`) runs on [Streamlit Community Cloud](https://share.streamlit.io) for free
 and keeps working after the BigQuery sandbox tables expire:
 
