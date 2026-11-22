@@ -1,6 +1,6 @@
 # Vehicle Safety Early Warning
 
-> **Live demo:** _link goes here once deployed on Streamlit Community Cloud ([DEPLOY.md](DEPLOY.md))_
+> **Live demo:** [vehicle-safety-early-warning.streamlit.app](https://vehicle-safety-early-warning.streamlit.app/) (public; may take 30-60 s to wake up; deploy notes in [DEPLOY.md](DEPLOY.md))
 >
 > **Data status:** live from BigQuery until the free sandbox tables expire (the app shows the date), then a final saved copy with a banner saying when live data ended.
 >

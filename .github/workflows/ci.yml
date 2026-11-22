@@ -66,3 +66,39 @@ jobs:
         env:
           FORCE_MODE: ${{ matrix.mode }}
           VSE_SNAPSHOT_REMOTE: "0"
+
+  # The backup hosting image (Dockerfile): builds, loads every tab, and serves the page.
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the image
+        run: docker build -t vse-demo .
+      - name: No secrets in the image
+        run: docker run --rm vse-demo sh -c 'test ! -e .streamlit/secrets.toml && ! ls *.json 2>/dev/null'
+      - name: Every tab loads inside the image (saved copy, no secrets, no network)
+        run: |
+          docker run --rm -i -e VSE_SNAPSHOT_REMOTE=0 vse-demo python - <<'PY'
+          from streamlit.testing.v1 import AppTest
+          at = AppTest.from_file("app/streamlit_app.py", default_timeout=180)
+          at.run()
+          for tab in ["Overview", "Recall watchlist", "AI agent", "Model results", "Trajectory", "Data and limitations"]:
+              at.session_state["main_tab"] = tab
+              at.run()
+              assert not at.exception, (tab, [e.message for e in at.exception])
+              assert not at.info, (tab, [i.body for i in at.info])
+          page = "\n".join(m.value for m in at.markdown)
+          assert "Saved copy" in page, "expected the saved-copy chip"
+          print("all tabs OK")
+          PY
+      - name: The server starts and answers
+        run: |
+          docker run -d --name demo -p 8501:8501 vse-demo
+          for i in $(seq 1 45); do curl -sf http://localhost:8501/_stcore/health && break; sleep 2; done
+          curl -sf http://localhost:8501/_stcore/health
+          curl -sf http://localhost:8501/ | grep -q "<title>"
+          echo "server is up"
+      - name: Server log
+        if: always()
+        run: docker logs demo 2>&1 | tail -20 || true
